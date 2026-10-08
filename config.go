@@ -8,15 +8,16 @@ import (
 
 // Config holds runtime configuration settings.
 type Config struct {
-	Port            string
-	ExtractorURL    string
-	VidFastBaseURL  string
-	VidaraURL       string
-	StreamTapeURL   string
-	FilminURL       string
-	TMDBKey         string
-	DataFilePath    string
-	RequestTimeout  time.Duration
+	Port           string
+	AppURLWorker   string
+	ExtractorURL   string
+	VidFastBaseURL string
+	VidaraURL      string
+	StreamTapeURL  string
+	FilminURL      string
+	TMDBKey        string
+	DataFilePath   string
+	RequestTimeout time.Duration
 }
 
 // LoadConfig initializes Config from environment variables or sensible defaults.
@@ -24,6 +25,14 @@ func LoadConfig() *Config {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
+	}
+
+	appURLWorker := os.Getenv("APP_URL_WORKER")
+	if appURLWorker == "" {
+		appURLWorker = os.Getenv("EXTRACTOR_URL")
+	}
+	if appURLWorker == "" {
+		appURLWorker = "https://api.worker.example/api/url"
 	}
 
 	extractorURL := os.Getenv("EXTRACTOR_URL")
@@ -70,6 +79,7 @@ func LoadConfig() *Config {
 
 	return &Config{
 		Port:           port,
+		AppURLWorker:   appURLWorker,
 		ExtractorURL:   extractorURL,
 		VidFastBaseURL: vidfastBaseURL,
 		VidaraURL:      vidaraURL,

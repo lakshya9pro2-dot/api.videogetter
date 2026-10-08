@@ -22,7 +22,7 @@ func main() {
 	}
 
 	// 2. Tier 2 - Extractor API
-	tier2 := tiers.NewExtractorTier(cfg.ExtractorURL, cfg.VidFastBaseURL, cfg.RequestTimeout)
+	tier2 := tiers.NewExtractorTier(cfg.AppURLWorker, cfg.VidFastBaseURL, cfg.RequestTimeout)
 
 	// 3. Tier 3 - CineTV
 	tier3 := tiers.NewCineTVTier(cfg.FilminURL, cfg.TMDBKey, cfg.RequestTimeout)

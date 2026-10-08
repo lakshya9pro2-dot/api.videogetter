@@ -95,12 +95,12 @@ type TVEpisodeRecord struct {
 
 // VidaraTier represents Tier 1 implementation with in-memory indexes and extractors.
 type VidaraTier struct {
-	mu           sync.RWMutex
-	movieIndex   map[int]MovieRecord
-	tvIndex      map[int]map[int]map[int]TVEpisodeRecord // tmdbID -> season -> episode -> record
-	vidaraBase   string
-	streamBase   string
-	client       *http.Client
+	mu            sync.RWMutex
+	movieIndex    map[int]MovieRecord
+	tvIndex       map[int]map[int]map[int]TVEpisodeRecord // tmdbID -> season -> episode -> record
+	vidaraBase    string
+	streamBase    string
+	client        *http.Client
 	noRedirClient *http.Client
 }
 
@@ -114,11 +114,11 @@ func NewVidaraTier(vidaraBase, streamtapeBase string, timeout time.Duration) *Vi
 	}
 
 	return &VidaraTier{
-		movieIndex:   make(map[int]MovieRecord),
-		tvIndex:      make(map[int]map[int]map[int]TVEpisodeRecord),
-		vidaraBase:   strings.TrimRight(vidaraBase, "/"),
-		streamBase:   strings.TrimRight(streamtapeBase, "/"),
-		client:       &http.Client{Timeout: timeout},
+		movieIndex: make(map[int]MovieRecord),
+		tvIndex:    make(map[int]map[int]map[int]TVEpisodeRecord),
+		vidaraBase: strings.TrimRight(vidaraBase, "/"),
+		streamBase: strings.TrimRight(streamtapeBase, "/"),
+		client:     &http.Client{Timeout: timeout},
 		noRedirClient: &http.Client{
 			Timeout: timeout,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {

@@ -278,7 +278,8 @@ All settings can be configured via environment variables with safe defaults:
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `8080` | Port for the HTTP server to listen on. |
-| `EXTRACTOR_URL` | `http://192.168.1.2:8080` | Base URL of the Tier 2 VidFast Extractor service. |
+| `APP_URL_WORKER` | `https://api.worker.example/api/url` | Worker API endpoint returning the active Pinggy extractor URL. |
+| `EXTRACTOR_URL` | `http://192.168.1.2:8080` | Fallback base URL of the Tier 2 Extractor service. |
 | `VIDFAST_BASE_URL` | `https://vidfast.vc` | Target URL prefix used for VidFast movie/tv requests. |
 | `VIDARA_BASE_URL` | `https://vidara.to` | Base URL of the Vidara upstream streaming API. |
 | `STREAMTAPE_BASE_URL` | `https://streamtape.com` | Base URL of Streamtape upstream. |
@@ -342,14 +343,17 @@ Handles Tier 1 resolution:
 
 #### 3. [`tiers/tier2_extractor.go`](file:///home/linux/Desktop/file/tiers/tier2_extractor.go)
 Handles Tier 2 resolution via external extractor service:
+- Automatically discovers active Pinggy extractor URL via Worker API (`APP_URL_WORKER`).
+- In-memory thread-safe caching with expiration checking and a 5-minute safety threshold.
+- On network/connection error, force-refreshes the Worker URL and retries exactly once.
 - Constructs target URLs:
   - Movie: `https://vidfast.vc/movie/{tmdb_id}`
   - TV: `https://vidfast.vc/tv/{tmdb_id}/{season}/{episode}`
 - Encodes query parameters safely using `net/url`:
-  - Request: `GET {EXTRACTOR_URL}/extract?url=<encoded_target>&timeout=20`
+  - Request: `GET {discovered_pinggy_url}/extract?url=<encoded_target>&timeout=20`
 - Response validation:
   - Checks `success == true` (or `status == "success"`) and `url != ""` $\rightarrow$ returns Tier 2 success.
-  - On network error, extractor `success == false`, or timeout $\rightarrow$ returns `nil, nil` to smoothly cascade to Tier 3.
+  - On persistent error, extractor `success == false`, or timeout $\rightarrow$ returns `nil, nil` to smoothly cascade to Tier 3.
 
 #### 4. [`tiers/tier3_cinetv.go`](file:///home/linux/Desktop/file/tiers/tier3_cinetv.go)
 Reimplements CineTV / Filmin provider functionality in Go:

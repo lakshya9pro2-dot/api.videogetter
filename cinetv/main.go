@@ -364,15 +364,23 @@ func httpGet(urlStr string, headers map[string]string) string {
 
 func parseTmdbMap(data map[string]interface{}, mediaType string) *TmdbInfo {
 	idVal, _ := data["id"].(float64)
-	
+
 	titleVal, _ := data["title"].(string)
-	if titleVal == "" { titleVal, _ = data["name"].(string) }
-	if titleVal == "" { titleVal, _ = data["original_title"].(string) }
-	if titleVal == "" { titleVal, _ = data["original_name"].(string) }
+	if titleVal == "" {
+		titleVal, _ = data["name"].(string)
+	}
+	if titleVal == "" {
+		titleVal, _ = data["original_title"].(string)
+	}
+	if titleVal == "" {
+		titleVal, _ = data["original_name"].(string)
+	}
 
 	dateVal, _ := data["release_date"].(string)
-	if dateVal == "" { dateVal, _ = data["first_air_date"].(string) }
-	
+	if dateVal == "" {
+		dateVal, _ = data["first_air_date"].(string)
+	}
+
 	yearVal := dateVal
 	if strings.Contains(dateVal, "-") {
 		yearVal = strings.Split(dateVal, "-")[0]
@@ -393,10 +401,10 @@ func fetchTmdbDetails(id string, mediaType string) *TmdbInfo {
 		if jsonStr != "" {
 			var findRes map[string]interface{}
 			json.Unmarshal([]byte(jsonStr), &findRes)
-			
+
 			tvResults, _ := findRes["tv_results"].([]interface{})
 			movieResults, _ := findRes["movie_results"].([]interface{})
-			
+
 			if mediaType == "tv" && len(tvResults) > 0 {
 				return parseTmdbMap(tvResults[0].(map[string]interface{}), "tv")
 			} else if len(movieResults) > 0 {
@@ -406,7 +414,7 @@ func fetchTmdbDetails(id string, mediaType string) *TmdbInfo {
 			}
 		}
 	}
-	
+
 	if mediaType == "movie" || mediaType == "tv" {
 		reqURL := fmt.Sprintf("https://api.themoviedb.org/3/%s/%s?api_key=%s", mediaType, id, TMDB_KEY)
 		jsonStr := httpGet(reqURL, nil)
@@ -416,7 +424,7 @@ func fetchTmdbDetails(id string, mediaType string) *TmdbInfo {
 			return parseTmdbMap(data, mediaType)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -458,201 +466,200 @@ func handleTmdb(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleTest(w http.ResponseWriter, r *http.Request) {
-    addCorsHeaders(w)
+	addCorsHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
-    vodId := "1466695562"
-    vodDetails := getVodInfo(vodId, 0)
-    json.NewEncoder(w).Encode(vodDetails)
+	vodId := "1466695562"
+	vodDetails := getVodInfo(vodId, 0)
+	json.NewEncoder(w).Encode(vodDetails)
 }
 
 func handleMovie(w http.ResponseWriter, r *http.Request) {
-    addCorsHeaders(w)
-    w.Header().Set("Content-Type", "application/json")
-    
-    id := strings.TrimPrefix(r.URL.Path, "/api/movie/")
-    if id == "" {
-        id = "550"
-    }
+	addCorsHeaders(w)
+	w.Header().Set("Content-Type", "application/json")
 
-    // 1. Get TMDB Details
-    tmdb := fetchTmdbDetails(id, "movie")
-    if tmdb == nil {
-        w.Write([]byte(`{"error": "TMDB info not found"}`))
-        return
-    }
+	id := strings.TrimPrefix(r.URL.Path, "/api/movie/")
+	if id == "" {
+		id = "550"
+	}
 
-    // 2. Search for the title
-    res := apiPost("/api/search/result", map[string]string{"kw": tmdb.Title, "pn": "1"})
-    
-    var vodId string
-    if res != nil {
-        if items, ok := res["result"].([]interface{}); ok && len(items) > 0 {
-            // Find best match (simplified to first item)
-            if item, ok := items[0].(map[string]interface{}); ok {
-                if idFloat, ok := item["id"].(float64); ok {
-                    vodId = strconv.FormatFloat(idFloat, 'f', -1, 64)
-                } else if idStr, ok := item["id"].(string); ok {
-                    vodId = idStr
-                }
-            }
-        } else if result, ok := res["result"].(map[string]interface{}); ok {
-            if items, ok := result["items"].([]interface{}); ok && len(items) > 0 {
-                if item, ok := items[0].(map[string]interface{}); ok {
-                    if idFloat, ok := item["id"].(float64); ok {
-                        vodId = strconv.FormatFloat(idFloat, 'f', -1, 64)
-                    } else if idStr, ok := item["id"].(string); ok {
-                        vodId = idStr
-                    }
-                }
-            }
-        }
-    }
+	// 1. Get TMDB Details
+	tmdb := fetchTmdbDetails(id, "movie")
+	if tmdb == nil {
+		w.Write([]byte(`{"error": "TMDB info not found"}`))
+		return
+	}
 
-    if vodId == "" {
-        w.Write([]byte(`{"error": "Video not found on server"}`))
-        return
-    }
+	// 2. Search for the title
+	res := apiPost("/api/search/result", map[string]string{"kw": tmdb.Title, "pn": "1"})
 
-    // 3. Get Vod Info and extract signed URL
-    vodDetails := getVodInfo(vodId, 0)
-    var signedUrl string
-    if vodDetails != nil {
-        if result, ok := vodDetails["result"].(map[string]interface{}); ok {
-            if collections, ok := result["vod_collection"].([]interface{}); ok && len(collections) > 0 {
-                if ep, ok := collections[0].(map[string]interface{}); ok {
-                    if url, ok := ep["signed_url"].(string); ok {
-                        signedUrl = url
-                    }
-                }
-            }
-        }
-    }
+	var vodId string
+	if res != nil {
+		if items, ok := res["result"].([]interface{}); ok && len(items) > 0 {
+			// Find best match (simplified to first item)
+			if item, ok := items[0].(map[string]interface{}); ok {
+				if idFloat, ok := item["id"].(float64); ok {
+					vodId = strconv.FormatFloat(idFloat, 'f', -1, 64)
+				} else if idStr, ok := item["id"].(string); ok {
+					vodId = idStr
+				}
+			}
+		} else if result, ok := res["result"].(map[string]interface{}); ok {
+			if items, ok := result["items"].([]interface{}); ok && len(items) > 0 {
+				if item, ok := items[0].(map[string]interface{}); ok {
+					if idFloat, ok := item["id"].(float64); ok {
+						vodId = strconv.FormatFloat(idFloat, 'f', -1, 64)
+					} else if idStr, ok := item["id"].(string); ok {
+						vodId = idStr
+					}
+				}
+			}
+		}
+	}
 
-    // 4. Return simplified JSON
-    response := map[string]string{
-        "id": id,
-        "name": tmdb.Title,
-        "url": signedUrl,
-    }
-    json.NewEncoder(w).Encode(response)
+	if vodId == "" {
+		w.Write([]byte(`{"error": "Video not found on server"}`))
+		return
+	}
+
+	// 3. Get Vod Info and extract signed URL
+	vodDetails := getVodInfo(vodId, 0)
+	var signedUrl string
+	if vodDetails != nil {
+		if result, ok := vodDetails["result"].(map[string]interface{}); ok {
+			if collections, ok := result["vod_collection"].([]interface{}); ok && len(collections) > 0 {
+				if ep, ok := collections[0].(map[string]interface{}); ok {
+					if url, ok := ep["signed_url"].(string); ok {
+						signedUrl = url
+					}
+				}
+			}
+		}
+	}
+
+	// 4. Return simplified JSON
+	response := map[string]string{
+		"id":   id,
+		"name": tmdb.Title,
+		"url":  signedUrl,
+	}
+	json.NewEncoder(w).Encode(response)
 }
 
 func handleTv(w http.ResponseWriter, r *http.Request) {
-    addCorsHeaders(w)
-    w.Header().Set("Content-Type", "application/json")
-    
-    // Path looks like /api/tv/6678/1/6
-    parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/tv/"), "/")
-    if len(parts) < 3 {
-        w.Write([]byte(`{"error": "Invalid format, use /api/tv/{id}/{season}/{episode}"}`))
-        return
-    }
-    
-    id := parts[0]
-    season := parts[1]
-    episode, _ := strconv.Atoi(parts[2])
+	addCorsHeaders(w)
+	w.Header().Set("Content-Type", "application/json")
 
-    // 1. Get TMDB Details
-    tmdb := fetchTmdbDetails(id, "tv")
-    if tmdb == nil {
-        w.Write([]byte(`{"error": "TMDB info not found"}`))
-        return
-    }
+	// Path looks like /api/tv/6678/1/6
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/tv/"), "/")
+	if len(parts) < 3 {
+		w.Write([]byte(`{"error": "Invalid format, use /api/tv/{id}/{season}/{episode}"}`))
+		return
+	}
 
-    // 2. Search for the title + season
-    fmt.Printf("TMDB Title: %s\n", tmdb.Title)
-    searchQuery := fmt.Sprintf("%s Season %s", tmdb.Title, season)
-    res := apiPost("/api/search/result", map[string]string{"kw": searchQuery, "pn": "1"})
-    
-    var vodId string
-    extractVodId := func(response map[string]interface{}) string {
-        if response != nil {
-            if items, ok := response["result"].([]interface{}); ok && len(items) > 0 {
-                if item, ok := items[0].(map[string]interface{}); ok {
-                    if idFloat, ok := item["id"].(float64); ok {
-                        return strconv.FormatFloat(idFloat, 'f', -1, 64)
-                    } else if idStr, ok := item["id"].(string); ok {
-                        return idStr
-                    }
-                }
-            } else if resultMap, ok := response["result"].(map[string]interface{}); ok {
-                if items, ok := resultMap["items"].([]interface{}); ok && len(items) > 0 {
-                    if item, ok := items[0].(map[string]interface{}); ok {
-                        if idFloat, ok := item["id"].(float64); ok {
-                            return strconv.FormatFloat(idFloat, 'f', -1, 64)
-                        } else if idStr, ok := item["id"].(string); ok {
-                            return idStr
-                        }
-                    }
-                }
-            }
-        }
-        return ""
-    }
+	id := parts[0]
+	season := parts[1]
+	episode, _ := strconv.Atoi(parts[2])
 
-    vodId = extractVodId(res)
-    
-    // Fallback search to just the title
-    if vodId == "" {
-        res = apiPost("/api/search/result", map[string]string{"kw": tmdb.Title, "pn": "1"})
-        vodId = extractVodId(res)
-    }
+	// 1. Get TMDB Details
+	tmdb := fetchTmdbDetails(id, "tv")
+	if tmdb == nil {
+		w.Write([]byte(`{"error": "TMDB info not found"}`))
+		return
+	}
 
-    if vodId == "" {
-        w.Write([]byte(`{"error": "Video not found on server"}`))
-        return
-    }
+	// 2. Search for the title + season
+	fmt.Printf("TMDB Title: %s\n", tmdb.Title)
+	searchQuery := fmt.Sprintf("%s Season %s", tmdb.Title, season)
+	res := apiPost("/api/search/result", map[string]string{"kw": searchQuery, "pn": "1"})
 
-    // 3. Get Vod Info and extract signed URL for the specific episode
-    vodDetails := getVodInfo(vodId, 0)
-    var signedUrl string
-    if vodDetails != nil {
-        if result, ok := vodDetails["result"].(map[string]interface{}); ok {
-            if collections, ok := result["vod_collection"].([]interface{}); ok {
-                for _, epIntf := range collections {
-                    if ep, ok := epIntf.(map[string]interface{}); ok {
-                        colNum := 0
-                        if colFloat, ok := ep["collection"].(float64); ok {
-                            colNum = int(colFloat)
-                        }
-                        if colNum == episode {
-                            if url, ok := ep["signed_url"].(string); ok {
-                                signedUrl = url
-                                break
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+	var vodId string
+	extractVodId := func(response map[string]interface{}) string {
+		if response != nil {
+			if items, ok := response["result"].([]interface{}); ok && len(items) > 0 {
+				if item, ok := items[0].(map[string]interface{}); ok {
+					if idFloat, ok := item["id"].(float64); ok {
+						return strconv.FormatFloat(idFloat, 'f', -1, 64)
+					} else if idStr, ok := item["id"].(string); ok {
+						return idStr
+					}
+				}
+			} else if resultMap, ok := response["result"].(map[string]interface{}); ok {
+				if items, ok := resultMap["items"].([]interface{}); ok && len(items) > 0 {
+					if item, ok := items[0].(map[string]interface{}); ok {
+						if idFloat, ok := item["id"].(float64); ok {
+							return strconv.FormatFloat(idFloat, 'f', -1, 64)
+						} else if idStr, ok := item["id"].(string); ok {
+							return idStr
+						}
+					}
+				}
+			}
+		}
+		return ""
+	}
 
-    if signedUrl == "" {
-        w.Write([]byte(`{"error": "Episode not found"}`))
-        return
-    }
+	vodId = extractVodId(res)
 
-    // 4. Return simplified JSON
-    response := map[string]string{
-        "id": id,
-        "name": tmdb.Title,
-        "season": season,
-        "episode": strconv.Itoa(episode),
-        "url": signedUrl,
-    }
-    json.NewEncoder(w).Encode(response)
+	// Fallback search to just the title
+	if vodId == "" {
+		res = apiPost("/api/search/result", map[string]string{"kw": tmdb.Title, "pn": "1"})
+		vodId = extractVodId(res)
+	}
+
+	if vodId == "" {
+		w.Write([]byte(`{"error": "Video not found on server"}`))
+		return
+	}
+
+	// 3. Get Vod Info and extract signed URL for the specific episode
+	vodDetails := getVodInfo(vodId, 0)
+	var signedUrl string
+	if vodDetails != nil {
+		if result, ok := vodDetails["result"].(map[string]interface{}); ok {
+			if collections, ok := result["vod_collection"].([]interface{}); ok {
+				for _, epIntf := range collections {
+					if ep, ok := epIntf.(map[string]interface{}); ok {
+						colNum := 0
+						if colFloat, ok := ep["collection"].(float64); ok {
+							colNum = int(colFloat)
+						}
+						if colNum == episode {
+							if url, ok := ep["signed_url"].(string); ok {
+								signedUrl = url
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if signedUrl == "" {
+		w.Write([]byte(`{"error": "Episode not found"}`))
+		return
+	}
+
+	// 4. Return simplified JSON
+	response := map[string]string{
+		"id":      id,
+		"name":    tmdb.Title,
+		"season":  season,
+		"episode": strconv.Itoa(episode),
+		"url":     signedUrl,
+	}
+	json.NewEncoder(w).Encode(response)
 }
 
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleRoot)
 	mux.HandleFunc("/api/tmdb/movie/", handleTmdb)
-    mux.HandleFunc("/api/movie/", handleMovie)
-    mux.HandleFunc("/api/tv/", handleTv)
-
+	mux.HandleFunc("/api/movie/", handleMovie)
+	mux.HandleFunc("/api/tv/", handleTv)
 
 	mux.HandleFunc("/api/test", handleTest)
-	
+
 	log.Printf("Server listening on port %d", DefaultPort)
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", DefaultPort), mux); err != nil {
 		log.Fatal(err)

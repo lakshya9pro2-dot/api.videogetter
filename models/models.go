@@ -27,13 +27,13 @@ type MediaItem struct {
 
 // ResolutionResult represents the final response from the 3-Tier resolver.
 type ResolutionResult struct {
-	Success bool      `json:"success"`
-	TmdbID  int       `json:"tmdb_id"`
-	Type    string    `json:"type,omitempty"`
-	Tier    int       `json:"tier,omitempty"`
-	Source  string    `json:"source,omitempty"`
-	Title   string    `json:"title,omitempty"`
-	Name    string    `json:"name,omitempty"`
+	Success bool              `json:"success"`
+	TmdbID  int               `json:"tmdb_id"`
+	Type    string            `json:"type,omitempty"`
+	Tier    int               `json:"tier,omitempty"`
+	Source  string            `json:"source,omitempty"`
+	Title   string            `json:"title,omitempty"`
+	Name    string            `json:"name,omitempty"`
 	Season  *int              `json:"season,omitempty"`
 	Episode *int              `json:"episode,omitempty"`
 	URL     string            `json:"url,omitempty"`
@@ -53,19 +53,19 @@ type AudioTrack struct {
 
 // ExtractorResponse represents extraction responses from Vidara, Streamtape, or VidFast.
 type ExtractorResponse struct {
-	Status         string       `json:"status,omitempty"`
-	Success        bool         `json:"success,omitempty"`
-	Source         string       `json:"source,omitempty"`
-	OriginalURL    string       `json:"original_url,omitempty"`
-	URL            string       `json:"url,omitempty"`
-	ProxyURL       string       `json:"proxy_url,omitempty"`
-	DirectURL      string       `json:"direct_url,omitempty"`
-	TapecontentURL string       `json:"tapecontent_url,omitempty"`
-	StreamURL      string       `json:"stream_url,omitempty"`
-	Text           string       `json:"text,omitempty"`
-	Title          string       `json:"title,omitempty"`
-	Thumbnail      *string      `json:"thumbnail,omitempty"`
-	Subtitles      interface{}  `json:"subtitles,omitempty"`
+	Status         string            `json:"status,omitempty"`
+	Success        bool              `json:"success,omitempty"`
+	Source         string            `json:"source,omitempty"`
+	OriginalURL    string            `json:"original_url,omitempty"`
+	URL            string            `json:"url,omitempty"`
+	ProxyURL       string            `json:"proxy_url,omitempty"`
+	DirectURL      string            `json:"direct_url,omitempty"`
+	TapecontentURL string            `json:"tapecontent_url,omitempty"`
+	StreamURL      string            `json:"stream_url,omitempty"`
+	Text           string            `json:"text,omitempty"`
+	Title          string            `json:"title,omitempty"`
+	Thumbnail      *string           `json:"thumbnail,omitempty"`
+	Subtitles      interface{}       `json:"subtitles,omitempty"`
 	AudioTracks    []AudioTrack      `json:"audio_tracks,omitempty"`
 	StreamType     string            `json:"stream_type,omitempty"`
 	Headers        map[string]string `json:"headers,omitempty"`

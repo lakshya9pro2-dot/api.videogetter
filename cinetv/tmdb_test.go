@@ -4,12 +4,12 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 	"io/ioutil"
+	"net/http"
 )
 
 func main() {
-    resp, _ := http.Get("http://localhost:1937/api/tv/6678/1/6")
-    body, _ := ioutil.ReadAll(resp.Body)
-    fmt.Println(string(body))
+	resp, _ := http.Get("http://localhost:1937/api/tv/6678/1/6")
+	body, _ := ioutil.ReadAll(resp.Body)
+	fmt.Println(string(body))
 }

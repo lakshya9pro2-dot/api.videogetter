@@ -9,11 +9,11 @@ import (
 )
 
 type mockTier struct {
-	name            string
-	movieHandler    func(ctx context.Context, tmdbID int) (*models.ResolutionResult, error)
-	tvHandler       func(ctx context.Context, tmdbID, season, episode int) (*models.ResolutionResult, error)
-	movieCallCount  int
-	tvCallCount     int
+	name           string
+	movieHandler   func(ctx context.Context, tmdbID int) (*models.ResolutionResult, error)
+	tvHandler      func(ctx context.Context, tmdbID, season, episode int) (*models.ResolutionResult, error)
+	movieCallCount int
+	tvCallCount    int
 }
 
 func (m *mockTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.ResolutionResult, error) {

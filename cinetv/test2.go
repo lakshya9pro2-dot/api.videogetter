@@ -1,13 +1,14 @@
 //go:build ignore
 
 package main
+
 import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"time"
-	"strings"
 	"strconv"
+	"strings"
+	"time"
 )
 
 func main() {
