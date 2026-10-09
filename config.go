@@ -27,12 +27,9 @@ func LoadConfig() *Config {
 		port = "8080"
 	}
 
-	appURLWorker := os.Getenv("APP_URL_WORKER")
-	if appURLWorker == "" {
-		appURLWorker = os.Getenv("EXTRACTOR_URL")
-	}
-	if appURLWorker == "" {
-		appURLWorker = "https://api.worker.example/api/url"
+	appURLWorker := "https://pinggy-registry.kineflex-netflex.workers.dev/api/app"
+	if envWorker := os.Getenv("APP_URL_WORKER"); envWorker != "" {
+		appURLWorker = envWorker
 	}
 
 	extractorURL := os.Getenv("EXTRACTOR_URL")

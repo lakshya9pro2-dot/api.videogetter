@@ -278,7 +278,7 @@ All settings can be configured via environment variables with safe defaults:
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `8080` | Port for the HTTP server to listen on. |
-| `APP_URL_WORKER` | `https://api.worker.example/api/url` | Worker API endpoint returning the active Pinggy extractor URL. |
+| `APP_URL_WORKER` | `https://pinggy-registry.kineflex-netflex.workers.dev/api/app` | Worker API endpoint returning the active Pinggy extractor URL. |
 | `EXTRACTOR_URL` | `http://192.168.1.2:8080` | Fallback base URL of the Tier 2 Extractor service. |
 | `VIDFAST_BASE_URL` | `https://vidfast.vc` | Target URL prefix used for VidFast movie/tv requests. |
 | `VIDARA_BASE_URL` | `https://vidara.to` | Base URL of the Vidara upstream streaming API. |

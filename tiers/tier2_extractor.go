@@ -23,6 +23,7 @@ const (
 	workerRefreshBefore   = 5 * time.Minute
 	workerCacheDuration   = 5 * time.Minute
 	defaultTimeoutSeconds = 20
+	extractorUserAgent    = "vidara-api/1.0"
 )
 
 // workerURLResponse models the JSON returned by the Worker API.
@@ -52,9 +53,6 @@ type ExtractorTier struct {
 func NewExtractorTier(workerURL, vidfastBaseURL string, timeout time.Duration) *ExtractorTier {
 	if workerURL == "" {
 		workerURL = os.Getenv("APP_URL_WORKER")
-	}
-	if workerURL == "" {
-		workerURL = os.Getenv("EXTRACTOR_URL")
 	}
 	if workerURL == "" {
 		workerURL = appURLWorker
@@ -161,8 +159,9 @@ func (t *ExtractorTier) fetchWorkerURLLocked(ctx context.Context) (string, error
 	if err != nil {
 		return "", fmt.Errorf("failed to create worker request: %w", err)
 	}
-	req.Header.Set("User-Agent", defaultHeaders["User-Agent"])
+	req.Header.Set("User-Agent", extractorUserAgent)
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Pinggy-No-Screen", "true")
 
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -331,8 +330,9 @@ func (t *ExtractorTier) doExtractRequest(ctx context.Context, baseURL, targetURL
 	if err != nil {
 		return "", false, fmt.Errorf("failed to create extractor request: %w", err)
 	}
-	req.Header.Set("User-Agent", defaultHeaders["User-Agent"])
+	req.Header.Set("User-Agent", extractorUserAgent)
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Pinggy-No-Screen", "true")
 
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -341,7 +341,7 @@ func (t *ExtractorTier) doExtractRequest(ctx context.Context, baseURL, targetURL
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		isNetFail := resp.StatusCode >= 500
+		isNetFail := resp.StatusCode >= 500 || resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadGateway
 		return "", isNetFail, fmt.Errorf("extractor http status %d", resp.StatusCode)
 	}
 
@@ -352,7 +352,8 @@ func (t *ExtractorTier) doExtractRequest(ctx context.Context, baseURL, targetURL
 
 	var apiResp extractorAPIResponse
 	if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
-		return "", false, fmt.Errorf("failed parsing extractor json response: %w", err)
+		isNetFail := strings.HasPrefix(strings.TrimSpace(string(bodyBytes)), "<")
+		return "", isNetFail, fmt.Errorf("failed parsing extractor json response: %w", err)
 	}
 
 	isSuccess := false
