@@ -19,7 +19,7 @@ import (
 
 const (
 	// appURLWorker is the default Worker API endpoint used to discover the Pinggy URL.
-	appURLWorker          = "https://api.worker.example/api/url"
+	appURLWorker          = "https://pinggy-registry.kineflex-netflex.workers.dev/api/app"
 	workerRefreshBefore   = 5 * time.Minute
 	workerCacheDuration   = 5 * time.Minute
 	defaultTimeoutSeconds = 20
