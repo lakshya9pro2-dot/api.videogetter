@@ -58,7 +58,7 @@ func NewExtractorTier(workerURL, vidfastBaseURL string, timeout time.Duration) *
 		workerURL = appURLWorker
 	}
 	if vidfastBaseURL == "" {
-		vidfastBaseURL = "https://vidfast.vc"
+		vidfastBaseURL = "https://cinesrc.st/embed"
 	}
 
 	clientTimeout := timeout
