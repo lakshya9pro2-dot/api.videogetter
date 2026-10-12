@@ -38,9 +38,11 @@ func NewAPIHandler(res *resolver.CentralResolver, vidaraTier *tiers.VidaraTier, 
 	}
 }
 
-// AddCORSHeaders sets standard permissive CORS headers on the response.
+// AddCORSHeaders sets CORS headers, preserving any Origin already set by middleware.
 func AddCORSHeaders(w http.ResponseWriter) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if w.Header().Get("Access-Control-Allow-Origin") == "" {
+		w.Header().Set("Access-Control-Allow-Origin", "https://api.kineflex.site")
+	}
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, HEAD")
 	w.Header().Set("Access-Control-Allow-Headers", "*")
 	w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")

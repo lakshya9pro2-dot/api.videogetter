@@ -62,9 +62,11 @@ func main() {
 	mux.HandleFunc("/hls.min.js", apiHandler.HandleHlsJs)
 	mux.HandleFunc("/", apiHandler.HandlePlayer)
 
+	handler := handlers.OriginFilterMiddleware(mux, cfg.AllowedOrigin, cfg.RedirectURL)
+
 	addr := fmt.Sprintf("0.0.0.0:%s", cfg.Port)
 	log.Printf("[*] Server listening on http://%s", addr)
-	if err := http.ListenAndServe(":"+cfg.Port, mux); err != nil {
+	if err := http.ListenAndServe(":"+cfg.Port, handler); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }

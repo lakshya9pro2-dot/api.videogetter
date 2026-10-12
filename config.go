@@ -10,12 +10,20 @@ import (
 // EASY CONFIGURATION: EDIT THIS URL TO CHANGE THE JSON DATASET LOCATION
 // ============================================================================
 const DefaultVidaraJSONURL = "https://www.jsonkeeper.com/b/FWSAK"
+
+// AllowedOrigin is the strictly allowed Origin/Referer for backend API access.
+const DefaultAllowedOrigin = "https://api.kineflex.site"
+
+// RedirectURL is where unauthorized users/browsers are redirected.
+const DefaultRedirectURL = "https://api.kineflex.site/"
 // ============================================================================
 
 // Config holds runtime configuration settings.
 type Config struct {
 	Port            string
 	VidaraRemoteURL string // Remote URL for loading Vidara JSON dataset
+	AllowedOrigin   string // Allowed Origin for backend API access
+	RedirectURL     string // Redirect URL for unauthorized backend visits
 	AppURLWorker    string
 	ExtractorURL    string
 	VidFastBaseURL  string
@@ -110,9 +118,21 @@ func LoadConfig() *Config {
 		vidaraRemoteURL = DefaultVidaraJSONURL
 	}
 
+	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
+	if allowedOrigin == "" {
+		allowedOrigin = DefaultAllowedOrigin
+	}
+
+	redirectURL := os.Getenv("REDIRECT_URL")
+	if redirectURL == "" {
+		redirectURL = DefaultRedirectURL
+	}
+
 	return &Config{
 		Port:            port,
 		VidaraRemoteURL: vidaraRemoteURL,
+		AllowedOrigin:   allowedOrigin,
+		RedirectURL:     redirectURL,
 		AppURLWorker:    appURLWorker,
 		ExtractorURL:    extractorURL,
 		VidFastBaseURL:  vidfastBaseURL,

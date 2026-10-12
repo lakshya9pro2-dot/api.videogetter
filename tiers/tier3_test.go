@@ -83,7 +83,7 @@ func TestTier3_ParseSourceStream_Headers(t *testing.T) {
 	}
 }
 
-func TestTier3_GenerateM3U_MultiPlayerCompliance(t *testing.T) {
+func TestTier3_GenerateM3U_ExoPlayerCompliance(t *testing.T) {
 	tier := NewTier3("", "", "", "", 2*time.Second)
 	streams := []StreamOption{
 		{
@@ -115,17 +115,21 @@ func TestTier3_GenerateM3U_MultiPlayerCompliance(t *testing.T) {
 	if !strings.HasPrefix(m3u, "#EXTM3U") {
 		t.Errorf("expected playlist to start with #EXTM3U")
 	}
-	if !strings.Contains(m3u, "#EXTVLCOPT:http-referrer=https://www.febbox.com/") {
-		t.Errorf("missing VLC referrer directive")
+	if !strings.Contains(m3u, "#EXTINF:-1,Fight Club") {
+		t.Errorf("missing #EXTINF directive")
 	}
-	if !strings.Contains(m3u, "#EXTVLCOPT:http-origin=https://www.febbox.com") {
-		t.Errorf("missing VLC origin directive")
+	if !strings.Contains(m3u, "https://hls.shegu.net/test4k.m3u8") {
+		t.Errorf("missing 4K stream URL")
 	}
-	if !strings.Contains(m3u, "#EXTHTTP:") {
-		t.Errorf("missing IPTV #EXTHTTP directive")
+	// Verify that extra header directives (VLC, Kodi, IPTV) are NOT present
+	if strings.Contains(m3u, "#EXTVLCOPT") {
+		t.Errorf("playlist contains #EXTVLCOPT which breaks ExoPlayer")
 	}
-	if !strings.Contains(m3u, "#KODIPROP:inputstream.adaptive.manifest_headers=") {
-		t.Errorf("missing Kodi inputstream property")
+	if strings.Contains(m3u, "#EXTHTTP") {
+		t.Errorf("playlist contains #EXTHTTP which breaks ExoPlayer")
+	}
+	if strings.Contains(m3u, "#KODIPROP") {
+		t.Errorf("playlist contains #KODIPROP which breaks ExoPlayer")
 	}
 	if strings.Contains(m3u, ".mkv") || strings.Contains(m3u, ".mp4") {
 		t.Errorf("m3u playlist MUST NOT contain any mkv or mp4 links")

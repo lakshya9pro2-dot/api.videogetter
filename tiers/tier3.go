@@ -394,69 +394,26 @@ func (t *Tier3) executeScrapeRequest(ctx context.Context, fullURL string) ([]Str
 	return validStreams, nil
 }
 
-// GenerateM3U builds an Extended M3U playlist string containing strictly .m3u8 streams compatible with VLC, Kodi, mpv, and IPTV players.
+// GenerateM3U builds a clean, simple standard M3U playlist string containing strictly .m3u8 streams
+// with only #EXTINF and direct URLs (no origin, user-agent, or referer directives), fully compatible with ExoPlayer, VLC, mpv, and all media players.
 func (t *Tier3) GenerateM3U(title string, streams []StreamOption) string {
 	var b strings.Builder
-	b.WriteString("#EXTM3U\n")
-	b.WriteString(fmt.Sprintf("#PLAYLIST:%s\n\n", title))
+	b.WriteString("#EXTM3U\n\n")
 
 	for idx, s := range streams {
-		displayTitle := fmt.Sprintf("%s - %s %s (%s) [Option %d]", title, s.Quality, s.Name, s.Type, idx+1)
-		b.WriteString(fmt.Sprintf("#EXTINF:-1 tvg-name=\"%s\" group-title=\"%s\", %s\n", displayTitle, title, displayTitle))
-
-		// VLC directives
-		b.WriteString(fmt.Sprintf("#EXTVLCOPT:http-referrer=%s\n", s.Referer))
-		b.WriteString(fmt.Sprintf("#EXTVLCOPT:http-origin=%s\n", s.Origin))
-		b.WriteString(fmt.Sprintf("#EXTVLCOPT:http-user-agent=%s\n", s.UserAgent))
-
-		// General / IPTV JSON headers tag
-		headersJSON, _ := json.Marshal(map[string]string{
-			"Referer":    s.Referer,
-			"Origin":     s.Origin,
-			"User-Agent": s.UserAgent,
-		})
-		b.WriteString(fmt.Sprintf("#EXTHTTP:%s\n", string(headersJSON)))
-
-		// Kodi inputstream property
-		kodiHeaders := fmt.Sprintf("Referer=%s&Origin=%s&User-Agent=%s", url.QueryEscape(s.Referer), url.QueryEscape(s.Origin), url.QueryEscape(s.UserAgent))
-		b.WriteString(fmt.Sprintf("#KODIPROP:inputstream.adaptive.manifest_headers=%s\n", kodiHeaders))
-
-		// Direct .m3u8 stream URL
+		displayTitle := fmt.Sprintf("%s - %s %s [Option %d]", title, s.Quality, s.Name, idx+1)
+		b.WriteString(fmt.Sprintf("#EXTINF:-1,%s\n", displayTitle))
 		b.WriteString(s.StreamURL + "\n\n")
 	}
 
 	return b.String()
 }
 
-// GenerateSingleM3U builds a universal Extended M3U playlist string for a single stream.
+// GenerateSingleM3U builds a clean, simple standard M3U playlist string for a single stream.
 func GenerateSingleM3U(title, streamURL, referer, origin, userAgent string) string {
-	if referer == "" {
-		referer = DefaultFebboxReferer
-	}
-	if origin == "" {
-		origin = DefaultFebboxOrigin
-	}
-	if userAgent == "" {
-		userAgent = DefaultUserAgent
-	}
-
 	var b strings.Builder
-	b.WriteString("#EXTM3U\n")
-	b.WriteString(fmt.Sprintf("#PLAYLIST:%s\n\n", title))
-	b.WriteString(fmt.Sprintf("#EXTINF:-1 tvg-name=\"%s\" group-title=\"%s\", %s\n", title, title, title))
-	b.WriteString(fmt.Sprintf("#EXTVLCOPT:http-referrer=%s\n", referer))
-	b.WriteString(fmt.Sprintf("#EXTVLCOPT:http-origin=%s\n", origin))
-	b.WriteString(fmt.Sprintf("#EXTVLCOPT:http-user-agent=%s\n", userAgent))
-
-	headersJSON, _ := json.Marshal(map[string]string{
-		"Referer":    referer,
-		"Origin":     origin,
-		"User-Agent": userAgent,
-	})
-	b.WriteString(fmt.Sprintf("#EXTHTTP:%s\n", string(headersJSON)))
-
-	kodiHeaders := fmt.Sprintf("Referer=%s&Origin=%s&User-Agent=%s", url.QueryEscape(referer), url.QueryEscape(origin), url.QueryEscape(userAgent))
-	b.WriteString(fmt.Sprintf("#KODIPROP:inputstream.adaptive.manifest_headers=%s\n", kodiHeaders))
+	b.WriteString("#EXTM3U\n\n")
+	b.WriteString(fmt.Sprintf("#EXTINF:-1,%s\n", title))
 	b.WriteString(streamURL + "\n")
 
 	return b.String()
