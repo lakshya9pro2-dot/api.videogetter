@@ -111,7 +111,7 @@ func TestMovieFallback_Tier1Fails_Tier2Fails_Tier3Succeeds(t *testing.T) {
 	}
 	t3 := &mockTier{
 		movieHandler: func(ctx context.Context, tmdbID int) (*models.ResolutionResult, error) {
-			return &models.ResolutionResult{Success: true, TmdbID: tmdbID, Tier: 3, Source: "cinetv", URL: "http://cinetv.mp4"}, nil
+			return &models.ResolutionResult{Success: true, TmdbID: tmdbID, Tier: 3, Source: "showbox", URL: "https://hls.shegu.net/test.m3u8"}, nil
 		},
 	}
 
@@ -121,7 +121,7 @@ func TestMovieFallback_Tier1Fails_Tier2Fails_Tier3Succeeds(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !res.Success || res.Tier != 3 || res.Source != "cinetv" {
+	if !res.Success || res.Tier != 3 || res.Source != "showbox" {
 		t.Fatalf("expected tier 3 success, got %+v", res)
 	}
 	if t1.movieCallCount != 1 {
@@ -196,7 +196,7 @@ func TestTVFallback_Order(t *testing.T) {
 	// Case 3: Tier 1 fails, Tier 2 fails, Tier 3 succeeds
 	t3Success := &mockTier{
 		tvHandler: func(ctx context.Context, tmdbID, season, episode int) (*models.ResolutionResult, error) {
-			return &models.ResolutionResult{Success: true, TmdbID: tmdbID, Season: &season, Episode: &episode, Tier: 3, Source: "cinetv"}, nil
+			return &models.ResolutionResult{Success: true, TmdbID: tmdbID, Season: &season, Episode: &episode, Tier: 3, Source: "showbox"}, nil
 		},
 	}
 	r3 := NewCentralResolver(t1Fail, t1Fail, t3Success)

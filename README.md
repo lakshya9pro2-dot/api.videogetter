@@ -5,7 +5,7 @@ A high-performance backend API written in Go that resolves standard **TMDB IDs**
 This project converts the legacy Python implementation (`app.py`) into idiomatic, concurrent Go with zero third-party dependencies, integrating:
 - **Tier 1: Vidara & Streamtape** (Local in-memory index + live upstream resolution)
 - **Tier 2: VidFast Extractor API** (`/extract?url=...&timeout=20`)
-- **Tier 3: CineTV / Filmin** (Cryptographic signing, token generation, AES/3DES decryption, and VOD extraction)
+- **Tier 3: ShowBox / FilmU** (Direct HLS .m3u8 stream scraper, febbox authentication, and universal Extended M3U playlist generator)
 
 ---
 
@@ -42,9 +42,9 @@ Tier 1: Vidara
           └── Failed / timeout
                  │
                  ▼
-             Tier 3: CineTV (Filmin)
+             Tier 3: ShowBox (FilmU)
                  │
-                 ├── Found & Signed URL? ──► Return HTTP 200 (tier: 3, source: "cinetv")
+                 ├── Found & Valid URL? ──► Return HTTP 200 (tier: 3, source: "showbox")
                  │
                  └── Not found
                         │
@@ -137,7 +137,7 @@ curl -s http://localhost:8080/api/movie/126560
 }
 ```
 
-#### Example: Tier 3 Resolution (CineTV / Filmin)
+#### Example: Tier 3 Resolution (ShowBox / FilmU)
 ```bash
 curl -s http://localhost:8080/api/movie/550
 ```
@@ -148,13 +148,12 @@ curl -s http://localhost:8080/api/movie/550
   "tmdb_id": 550,
   "type": "movie",
   "tier": 3,
-  "source": "cinetv",
-  "name": "Fight Club",
+  "source": "showbox",
   "title": "Fight Club",
-  "url": "http://758d5c9d4a019e.e6r4r1.com/vod/1/2025/04/03/604be407c1fe/1135529346.mp4?wsSecret=...&wsTime=...",
+  "url": "https://hls.shegu.net/38214555.m3u8?sign=...",
   "headers": {
-    "Origin": "https://filmin.ajfysu.com",
-    "Referer": "https://filmin.ajfysu.com/"
+    "Origin": "https://www.febbox.com",
+    "Referer": "https://www.febbox.com/"
   }
 }
 ```
@@ -206,7 +205,7 @@ curl -s http://localhost:8080/api/tv/262838/1/2
 }
 ```
 
-#### Example: Tier 3 TV Fallback (CineTV)
+#### Example: Tier 3 TV Fallback (ShowBox / FilmU)
 ```bash
 curl -s http://localhost:8080/api/tv/1399/1/6
 ```
@@ -217,15 +216,14 @@ curl -s http://localhost:8080/api/tv/1399/1/6
   "tmdb_id": 1399,
   "type": "tv",
   "tier": 3,
-  "source": "cinetv",
-  "name": "Game of Thrones",
+  "source": "showbox",
   "title": "Game of Thrones",
   "season": 1,
   "episode": 6,
-  "url": "http://7590e5287be439.e6r4r1.com/vod/1/2026/06/18/60565ddb818f/534473569.mp4?wsSecret=...&wsTime=...",
+  "url": "https://hls.shegu.net/got_s1e6.m3u8?sign=...",
   "headers": {
-    "Origin": "https://filmin.ajfysu.com",
-    "Referer": "https://filmin.ajfysu.com/"
+    "Origin": "https://www.febbox.com",
+    "Referer": "https://www.febbox.com/"
   }
 }
 ```
@@ -267,7 +265,7 @@ To prevent CDN hotlink protection and CORS blocking in modern video players (suc
 |---|---|---|---|
 | **Tier 1** | Vidara | `https://vidara.to/` | `https://vidara.to` |
 | **Tier 2** | VidFast Extractor | `https://vidfast.vc/` | `https://vidfast.vc` |
-| **Tier 3** | CineTV / Filmin | `https://filmin.ajfysu.com/` | `https://filmin.ajfysu.com` |
+| **Tier 3** | ShowBox / FilmU | `https://www.febbox.com/` | `https://www.febbox.com` |
 
 ---
 
@@ -283,7 +281,9 @@ All settings can be configured via environment variables with safe defaults:
 | `VIDFAST_BASE_URL` | `https://vidfast.vc` | Target URL prefix used for VidFast movie/tv requests. |
 | `VIDARA_BASE_URL` | `https://vidara.to` | Base URL of the Vidara upstream streaming API. |
 | `STREAMTAPE_BASE_URL` | `https://streamtape.com` | Base URL of Streamtape upstream. |
-| `FILMIN_BASE_URL` | `https://filmin.ajfysu.com` | Upstream CineTV / Filmin API base URL. |
+| `SHOWBOX_BASE_URL` | `https://box.filmu.in` | Base URL of ShowBox scraping API. |
+| `SHOWBOX_API_KEY` | `09eb4299...` | ShowBox scraping API key (`X-Api-Key`). |
+| `FEBBOX_TOKEN` | `eyJ0eXAi...` | Febbox user JWT authorization token. |
 | `TMDB_KEY` | `e6333b32409e02a4a6eba6fb7ff866bb` | TMDB API v3 key for title and ID lookups. |
 | `DATA_FILE` | `data/vidara.json` | Path to the local Vidara JSON dataset. |
 | `REQUEST_TIMEOUT_SECONDS` | `10` | Default timeout duration for external network requests. |
@@ -315,7 +315,8 @@ This section explains the internals so any AI model or developer can navigate, m
 │   ├── tier1_vidara_test.go # Tier 1 indexing and parsing tests
 │   ├── tier2_extractor.go # Tier 2 VidFast extractor client
 │   ├── tier2_extractor_test.go # Tier 2 URL encoding and timeout tests
-│   └── tier3_cinetv.go  # Tier 3 Filmin cryptosystem and stream signer
+│   ├── tier3.go         # Tier 3 Pluggable streaming source skeleton
+│   └── tier3_test.go    # Tier 3 interface verification tests
 └── README.md
 ```
 
@@ -355,18 +356,14 @@ Handles Tier 2 resolution via external extractor service:
   - Checks `success == true` (or `status == "success"`) and `url != ""` $\rightarrow$ returns Tier 2 success.
   - On persistent error, extractor `success == false`, or timeout $\rightarrow$ returns `nil, nil` to smoothly cascade to Tier 3.
 
-#### 4. [`tiers/tier3_cinetv.go`](file:///home/linux/Desktop/file/tiers/tier3_cinetv.go)
-Reimplements CineTV / Filmin provider functionality in Go:
-- **Device Emulation**: Generates random 16-byte Android device IDs and emulates genuine device hardware fingerprints (`brandModels`).
-- **Cryptographic Engine**:
-  - **Triple-DES (3DES-CBC)**: Decrypts `SECRET_KEY_ENCRYPTED` using `DES_KEY` (`dsawdf634eebGFHITR5UT9kS0`) and `DES_IV` (`32456738`) to generate request signatures.
-  - **AES-128-CBC**: Decrypts Filmin API responses with `AES_KEY_STR` (`0123456789123456`) and `AES_IV_STR` (`2015030120123456`). If response bytes start with `0x1F, 0x8B`, it automatically decompresses with GZIP.
-  - **MD5 Tokenizer**: Generates dynamic P2P token signatures: `MD5(P2P_SALT + deviceID + vodID + timestamp)`.
-- **TMDB & VOD Resolution**:
-  - Resolves TMDB ID to title and release year.
-  - Searches Filmin `/api/search/result`.
-  - Queries `/api/vod/info_new` and filters `vod_collection` by episode number.
-  - Generates signed streaming URLs with `wsSecret` and `wsTime` expiration tokens.
+#### 4. [`tiers/tier3.go`](file:///home/linux/Desktop/new/api.videogetter-main/tiers/tier3.go)
+FilmU / ShowBox stream scraper and universal Extended M3U generator:
+- **Direct ShowBox Scraping**: Queries `box.filmu.in/scrape/ShowBox/...` with `X-Api-Key` and `febboxToken`.
+- **Strict M3U8 Filtering**: Filters strictly for `.m3u8` streams and excludes `.mkv`, `.mp4`, or video container files.
+- **Direct CDN URL Extraction**: Extracts and unquotes direct `hls.shegu.net` URLs from wrapped `wormhole.filmu.in/proxy/...` endpoints.
+- **Required Playback Headers**: Automatically attaches `Origin: https://www.febbox.com` and `Referer: https://www.febbox.com/`.
+- **Quality & Bitrate Ranking**: Prioritizes streams by resolution ($4\text{K} / 2160\text{p} > 1080\text{p} > 720\text{p} > 360\text{p}$) and file size (GB).
+- **Universal Extended M3U Generator**: [`GenerateM3U`](file:///home/linux/Desktop/new/api.videogetter-main/tiers/tier3.go#L340-L370) generates playlists with `#EXTVLCOPT` (VLC), `#EXTHTTP` (IPTV apps), and `#KODIPROP` (Kodi) compatible with all major video players. Access via `?format=m3u` or `/playlist.m3u`.
 
 #### 5. [`resolver/resolver.go`](file:///home/linux/Desktop/file/resolver/resolver.go)
 Implements the central fallback logic using Go interfaces (`TierResolver`):

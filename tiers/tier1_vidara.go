@@ -21,6 +21,9 @@ import (
 	"vidara-api/models"
 )
 
+// DefaultVidaraJSONURL is the default remote URL for the Tier 1 JSON dataset.
+const DefaultVidaraJSONURL = "https://www.jsonkeeper.com/b/FWSAK"
+
 var (
 	streamtapeDomains = map[string]bool{
 		"streamtape.com":     true,
@@ -102,6 +105,7 @@ type VidaraTier struct {
 	streamBase    string
 	client        *http.Client
 	noRedirClient *http.Client
+	loadedSources []string
 }
 
 // NewVidaraTier creates a new Tier 1 resolver.
@@ -169,7 +173,7 @@ func ParseIDsFromString(s string) (stID, vaID string) {
 	return stID, vaID
 }
 
-// LoadData loads and indexes the Vidara dataset from disk.
+// LoadData loads and indexes the Vidara dataset from remote URLs or local disk.
 func (v *VidaraTier) LoadData(paths ...string) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -181,6 +185,29 @@ func (v *VidaraTier) LoadData(paths ...string) error {
 		if p == "" {
 			continue
 		}
+		// Remote URL support (e.g. JsonKeeper, Pastebin, Gist)
+		if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
+			req, reqErr := http.NewRequestWithContext(context.Background(), "GET", p, nil)
+			if reqErr == nil {
+				req.Header.Set("User-Agent", "Mozilla/5.0 vidara-api/1.0")
+				req.Header.Set("Accept", "application/json")
+				resp, doErr := v.client.Do(req)
+				if doErr == nil && resp.StatusCode == http.StatusOK {
+					body, readErr := io.ReadAll(resp.Body)
+					resp.Body.Close()
+					if readErr == nil && len(body) > 0 {
+						dataBytes = body
+						log.Printf("[tier1] successfully loaded remote dataset from %s (%d bytes)", p, len(dataBytes))
+						break
+					}
+				} else if resp != nil {
+					resp.Body.Close()
+				}
+			}
+			continue
+		}
+
+		// Local file support
 		dataBytes, err = os.ReadFile(p)
 		if err == nil && len(dataBytes) > 0 {
 			log.Printf("[tier1] successfully read dataset from %s (%d bytes)", p, len(dataBytes))
@@ -197,6 +224,11 @@ func (v *VidaraTier) LoadData(paths ...string) error {
 		return fmt.Errorf("failed to parse dataset: %w", parseErr)
 	}
 
+	// Reset index maps before populating
+	v.movieIndex = make(map[int]MovieRecord)
+	v.tvIndex = make(map[int]map[int]map[int]TVEpisodeRecord)
+	v.loadedSources = paths
+
 	countMovies := 0
 	countTVEpisodes := 0
 
@@ -211,6 +243,9 @@ func (v *VidaraTier) LoadData(paths ...string) error {
 			}
 			if play.ST == "" && item.ST != "" {
 				play.ST = item.ST
+			}
+			if play.URL == "" && item.URL != "" {
+				play.URL = item.URL
 			}
 
 			v.movieIndex[item.ID] = MovieRecord{
@@ -244,6 +279,32 @@ func (v *VidaraTier) LoadData(paths ...string) error {
 
 	log.Printf("[tier1] indexed %d movies and %d TV episodes", countMovies, countTVEpisodes)
 	return nil
+}
+
+// ReloadData re-fetches and re-indexes the dataset from the configured remote URL or local files.
+func (v *VidaraTier) ReloadData() error {
+	v.mu.RLock()
+	paths := make([]string, len(v.loadedSources))
+	copy(paths, v.loadedSources)
+	v.mu.RUnlock()
+
+	if len(paths) == 0 {
+		paths = []string{DefaultVidaraJSONURL, "data/vidara.json", "data.json"}
+	}
+	return v.LoadData(paths...)
+}
+
+// GetCounts returns the number of indexed movies and TV episodes in Tier 1.
+func (v *VidaraTier) GetCounts() (movies, tvEpisodes int) {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	movies = len(v.movieIndex)
+	for _, seasons := range v.tvIndex {
+		for _, episodes := range seasons {
+			tvEpisodes += len(episodes)
+		}
+	}
+	return movies, tvEpisodes
 }
 
 // parseDataset parses either standard JSON or repairs malformed structures internally.
@@ -373,6 +434,45 @@ func (v *VidaraTier) FindTV(tmdbID, season, episode int) (TVEpisodeRecord, bool)
 	return rec, ok
 }
 
+// CheckDirectPlayURL inspects a Playback object:
+// - If VA has code: returns ("", false) indicating Tier 1 should perform standard resolution.
+// - If VA has no code (is empty) and play has a direct URL: returns (directURL, true) so Tier 1 sends it directly without resolution.
+func CheckDirectPlayURL(play models.Playback) (string, bool) {
+	// If VA has code, let Tier 1 do its standard resolver work
+	if strings.TrimSpace(play.VA) != "" {
+		return "", false
+	}
+
+	// VA is empty: check if play has a direct URL
+	candidate := strings.TrimSpace(play.URL)
+	if candidate == "" {
+		candidate = strings.TrimSpace(play.Play)
+	}
+
+	if candidate == "" {
+		return "", false
+	}
+
+	// Verify candidate is a URL or stream link
+	if strings.HasPrefix(candidate, "http://") ||
+		strings.HasPrefix(candidate, "https://") ||
+		strings.Contains(candidate, "://") ||
+		strings.HasPrefix(candidate, "//") ||
+		strings.Contains(candidate, ".m3u") ||
+		strings.Contains(candidate, ".mp4") ||
+		strings.Contains(candidate, ".mkv") ||
+		strings.Contains(candidate, "/") {
+		return candidate, true
+	}
+
+	return "", false
+}
+
+// CheckDirectPlay is a method wrapper on VidaraTier for CheckDirectPlayURL.
+func (v *VidaraTier) CheckDirectPlay(play models.Playback) (string, bool) {
+	return CheckDirectPlayURL(play)
+}
+
 // ResolveMovie checks Tier 1 for movie resolution.
 func (v *VidaraTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.ResolutionResult, error) {
 	log.Printf("[tier1] checking Vidara movie %d", tmdbID)
@@ -383,6 +483,29 @@ func (v *VidaraTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.Reso
 	}
 
 	log.Printf("[tier1] found movie %d (%s) in Vidara dataset", tmdbID, rec.Title)
+
+	// If VA has no code and play has a direct URL, send to response directly (no resolution needed)
+	if directURL, ok := v.CheckDirectPlay(rec.Play); ok {
+		log.Printf("[tier1] movie %d has direct play URL, sending direct without resolution: %s", tmdbID, directURL)
+		return &models.ResolutionResult{
+			Success: true,
+			TmdbID:  tmdbID,
+			Type:    "movie",
+			Tier:    1,
+			Source:  "vidara",
+			Title:   rec.Title,
+			URL:     directURL,
+			Headers: map[string]string{
+				"Referer": "https://vidara.to/",
+				"Origin":  "https://vidara.to",
+			},
+			Play: &models.Playback{
+				URL: directURL,
+			},
+		}, nil
+	}
+
+	// If VA has code: Tier 1 does its resolver work
 	res := &models.ResolutionResult{
 		Success: true,
 		TmdbID:  tmdbID,
@@ -419,6 +542,31 @@ func (v *VidaraTier) ResolveTV(ctx context.Context, tmdbID, season, episode int)
 	}
 
 	log.Printf("[tier1] found TV %d S%dE%d (%s) in Vidara dataset", tmdbID, season, episode, rec.Title)
+
+	// If VA has no code and play has a direct URL, send to response directly (no resolution needed)
+	if directURL, ok := v.CheckDirectPlay(rec.Play); ok {
+		log.Printf("[tier1] TV %d S%dE%d has direct play URL, sending direct without resolution: %s", tmdbID, season, episode, directURL)
+		return &models.ResolutionResult{
+			Success: true,
+			TmdbID:  tmdbID,
+			Type:    "tv",
+			Tier:    1,
+			Source:  "vidara",
+			Title:   rec.Title,
+			Season:  &season,
+			Episode: &episode,
+			URL:     directURL,
+			Headers: map[string]string{
+				"Referer": "https://vidara.to/",
+				"Origin":  "https://vidara.to",
+			},
+			Play: &models.Playback{
+				URL: directURL,
+			},
+		}, nil
+	}
+
+	// If VA has code: Tier 1 does its resolver work
 	res := &models.ResolutionResult{
 		Success: true,
 		TmdbID:  tmdbID,

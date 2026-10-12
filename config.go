@@ -6,18 +6,28 @@ import (
 	"time"
 )
 
+// ============================================================================
+// EASY CONFIGURATION: EDIT THIS URL TO CHANGE THE JSON DATASET LOCATION
+// ============================================================================
+const DefaultVidaraJSONURL = "https://www.jsonkeeper.com/b/FWSAK"
+// ============================================================================
+
 // Config holds runtime configuration settings.
 type Config struct {
-	Port           string
-	AppURLWorker   string
-	ExtractorURL   string
-	VidFastBaseURL string
-	VidaraURL      string
-	StreamTapeURL  string
-	FilminURL      string
-	TMDBKey        string
-	DataFilePath   string
-	RequestTimeout time.Duration
+	Port            string
+	VidaraRemoteURL string // Remote URL for loading Vidara JSON dataset
+	AppURLWorker    string
+	ExtractorURL    string
+	VidFastBaseURL  string
+	VidaraURL       string
+	StreamTapeURL   string
+	Tier3BaseURL    string
+	ShowBoxBaseURL  string
+	ShowBoxAPIKey   string
+	FebboxToken     string
+	TMDBKey         string
+	DataFilePath    string
+	RequestTimeout  time.Duration
 }
 
 // LoadConfig initializes Config from environment variables or sensible defaults.
@@ -52,9 +62,27 @@ func LoadConfig() *Config {
 		streamTapeURL = "https://streamtape.com"
 	}
 
-	filminURL := os.Getenv("FILMIN_BASE_URL")
-	if filminURL == "" {
-		filminURL = "https://filmin.ajfysu.com"
+	tier3BaseURL := os.Getenv("TIER3_BASE_URL")
+	if tier3BaseURL == "" {
+		tier3BaseURL = os.Getenv("FILMIN_BASE_URL")
+	}
+
+	showBoxBaseURL := os.Getenv("SHOWBOX_BASE_URL")
+	if showBoxBaseURL == "" {
+		showBoxBaseURL = tier3BaseURL
+	}
+	if showBoxBaseURL == "" {
+		showBoxBaseURL = "https://box.filmu.in"
+	}
+
+	showBoxAPIKey := os.Getenv("SHOWBOX_API_KEY")
+	if showBoxAPIKey == "" {
+		showBoxAPIKey = "09eb429913afb6b1cc90f23746f41fb3279aed77726c625c40672b81444c0bac"
+	}
+
+	febboxToken := os.Getenv("FEBBOX_TOKEN")
+	if febboxToken == "" {
+		febboxToken = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3OTE3MDE2MTksIm5iZiI6MTc5MTcwMTYxOSwiZXhwIjoxODIyODA1NjM5LCJkYXRhIjp7InVpZCI6MjM1NjE4OCwidG9rZW4iOiI4NDgxZDZmZDU1YWFjMzE0NmM4YmVhYjc0MDk3ZjIyMiJ9fQ.3XnZ66gABz4BnBzwuF1Pbpt-EqNX3y3UQ41JKB50gl4"
 	}
 
 	tmdbKey := os.Getenv("TMDB_KEY")
@@ -74,16 +102,28 @@ func LoadConfig() *Config {
 		}
 	}
 
+	vidaraRemoteURL := os.Getenv("VIDARA_JSON_URL")
+	if vidaraRemoteURL == "" {
+		vidaraRemoteURL = os.Getenv("DATA_URL")
+	}
+	if vidaraRemoteURL == "" {
+		vidaraRemoteURL = DefaultVidaraJSONURL
+	}
+
 	return &Config{
-		Port:           port,
-		AppURLWorker:   appURLWorker,
-		ExtractorURL:   extractorURL,
-		VidFastBaseURL: vidfastBaseURL,
-		VidaraURL:      vidaraURL,
-		StreamTapeURL:  streamTapeURL,
-		FilminURL:      filminURL,
-		TMDBKey:        tmdbKey,
-		DataFilePath:   dataFilePath,
-		RequestTimeout: time.Duration(timeoutSec) * time.Second,
+		Port:            port,
+		VidaraRemoteURL: vidaraRemoteURL,
+		AppURLWorker:    appURLWorker,
+		ExtractorURL:    extractorURL,
+		VidFastBaseURL:  vidfastBaseURL,
+		VidaraURL:       vidaraURL,
+		StreamTapeURL:   streamTapeURL,
+		Tier3BaseURL:    tier3BaseURL,
+		ShowBoxBaseURL:  showBoxBaseURL,
+		ShowBoxAPIKey:   showBoxAPIKey,
+		FebboxToken:     febboxToken,
+		TMDBKey:         tmdbKey,
+		DataFilePath:    dataFilePath,
+		RequestTimeout:  time.Duration(timeoutSec) * time.Second,
 	}
 }

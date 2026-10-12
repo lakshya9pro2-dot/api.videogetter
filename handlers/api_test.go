@@ -77,9 +77,13 @@ func setupTestServer() (*httptest.Server, *tiers.VidaraTier) {
 					TmdbID:  id,
 					Type:    "movie",
 					Tier:    3,
-					Source:  "cinetv",
+					Source:  "showbox",
 					Title:   "Fight Club",
-					URL:     "http://cinetv.filmin/550.mp4",
+					URL:     "https://hls.shegu.net/550.m3u8",
+					Headers: map[string]string{
+						"Origin":  "https://www.febbox.com",
+						"Referer": "https://www.febbox.com/",
+					},
 				}, nil
 			}
 			return nil, nil
@@ -91,11 +95,15 @@ func setupTestServer() (*httptest.Server, *tiers.VidaraTier) {
 					TmdbID:  id,
 					Type:    "tv",
 					Tier:    3,
-					Source:  "cinetv",
+					Source:  "showbox",
 					Title:   "Game of Thrones",
 					Season:  &s,
 					Episode: &e,
-					URL:     "http://cinetv.filmin/got_s1e6.mp4",
+					URL:     "https://hls.shegu.net/got_s1e6.m3u8",
+					Headers: map[string]string{
+						"Origin":  "https://www.febbox.com",
+						"Referer": "https://www.febbox.com/",
+					},
 				}, nil
 			}
 			return nil, nil
@@ -103,7 +111,7 @@ func setupTestServer() (*httptest.Server, *tiers.VidaraTier) {
 	}
 
 	r := resolver.NewCentralResolver(t1, t2, t3)
-	h := NewAPIHandler(r, t1, 2*time.Second)
+	h := NewAPIHandler(r, t1, nil, 2*time.Second)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", h.HandleHealth)
@@ -179,8 +187,11 @@ func TestMovieEndpoints_AllTiers(t *testing.T) {
 	}
 	var res3 models.ResolutionResult
 	_ = json.NewDecoder(resp3.Body).Decode(&res3)
-	if !res3.Success || res3.Tier != 3 || res3.Source != "cinetv" {
+	if !res3.Success || res3.Tier != 3 || res3.Source != "showbox" {
 		t.Errorf("expected Tier 3 for 550, got %+v", res3)
+	}
+	if res3.Headers["Origin"] != "https://www.febbox.com" || res3.Headers["Referer"] != "https://www.febbox.com/" {
+		t.Errorf("expected febbox headers, got %+v", res3.Headers)
 	}
 
 	// 4. Movie Complete Failure: 9999999

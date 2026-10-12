@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"vidara-api/models"
 )
 
 func TestVidaraTier_LoadDataAndLookup(t *testing.T) {
@@ -21,7 +23,7 @@ func TestVidaraTier_LoadDataAndLookup(t *testing.T) {
 	if !found {
 		t.Fatalf("movie 1167307 should be found in local dataset")
 	}
-	if movie.Play.VA != "mzfdFOguU87x" || movie.Play.ST != "6a44824dcd175" {
+	if movie.Play.VA != "mzfdFOguU87x" {
 		t.Errorf("unexpected movie playback data: %+v", movie.Play)
 	}
 
@@ -129,5 +131,87 @@ func TestEvalStreamTapeJS(t *testing.T) {
 	res := EvalStreamTapeJS(context.Background(), expr)
 	if res != "hellorld" {
 		t.Errorf("expected 'hellorld', got '%s'", res)
+	}
+}
+
+func TestVidaraTier_DirectPlayURL(t *testing.T) {
+	tier := NewVidaraTier("https://vidara.to", "https://streamtape.com", 2*time.Second)
+
+	// Case 1: VA has code -> CheckDirectPlay returns false, Tier 1 does its work
+	playWithVA := models.Playback{
+		VA:  "mzfdFOguU87x",
+		URL: "https://example.com/direct.m3u8",
+	}
+	if url, ok := tier.CheckDirectPlay(playWithVA); ok {
+		t.Errorf("expected CheckDirectPlay to return false when VA has code, got url=%s", url)
+	}
+
+	// Case 2: VA is empty, play has URL -> CheckDirectPlay returns direct URL
+	playDirectURL := models.Playback{
+		VA:  "",
+		URL: "https://example.com/direct_stream.m3u8",
+	}
+	if url, ok := tier.CheckDirectPlay(playDirectURL); !ok || url != "https://example.com/direct_stream.m3u8" {
+		t.Errorf("expected direct URL, got url=%s, ok=%v", url, ok)
+	}
+
+	// Case 3: VA is empty, play has Play field with URL -> CheckDirectPlay returns direct URL
+	playDirectField := models.Playback{
+		VA:   "",
+		Play: "https://example.com/direct_play.mp4",
+	}
+	if url, ok := tier.CheckDirectPlay(playDirectField); !ok || url != "https://example.com/direct_play.mp4" {
+		t.Errorf("expected direct URL from Play field, got url=%s, ok=%v", url, ok)
+	}
+
+	// Case 4: VA is empty and play is empty -> returns false
+	playEmpty := models.Playback{VA: "", URL: "", Play: ""}
+	if _, ok := tier.CheckDirectPlay(playEmpty); ok {
+		t.Errorf("expected false for empty playback")
+	}
+
+	// Test in-memory resolution of movie with direct URL
+	tier.movieIndex[99901] = MovieRecord{
+		ID:    99901,
+		Title: "Direct Movie",
+		Play: models.Playback{
+			VA:  "",
+			URL: "https://cdn.test/direct_movie.m3u8",
+		},
+	}
+
+	resM, err := tier.ResolveMovie(context.Background(), 99901)
+	if err != nil || resM == nil || !resM.Success {
+		t.Fatalf("expected successful resolution for direct movie: %v", err)
+	}
+	if resM.URL != "https://cdn.test/direct_movie.m3u8" {
+		t.Errorf("expected direct URL https://cdn.test/direct_movie.m3u8, got %s", resM.URL)
+	}
+	if resM.Tier != 1 || resM.Source != "vidara" {
+		t.Errorf("expected Tier 1 Vidara, got %+v", resM)
+	}
+
+	// Test in-memory resolution of TV episode with direct URL
+	tier.tvIndex[99902] = map[int]map[int]TVEpisodeRecord{
+		1: {
+			1: TVEpisodeRecord{
+				ID:      99902,
+				Title:   "Direct Show",
+				Season:  1,
+				Episode: 1,
+				Play: models.Playback{
+					VA:   "",
+					Play: "https://cdn.test/direct_tv_s1e1.m3u8",
+				},
+			},
+		},
+	}
+
+	resTV, err := tier.ResolveTV(context.Background(), 99902, 1, 1)
+	if err != nil || resTV == nil || !resTV.Success {
+		t.Fatalf("expected successful resolution for direct TV: %v", err)
+	}
+	if resTV.URL != "https://cdn.test/direct_tv_s1e1.m3u8" {
+		t.Errorf("expected direct URL https://cdn.test/direct_tv_s1e1.m3u8, got %s", resTV.URL)
 	}
 }

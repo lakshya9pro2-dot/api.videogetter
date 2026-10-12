@@ -1,9 +1,58 @@
 package models
 
-// Playback holds playback identifiers for Vidara and Streamtape.
+import (
+	"encoding/json"
+	"strings"
+)
+
+// Playback holds playback identifiers for Vidara and Streamtape, or a direct stream URL.
 type Playback struct {
-	VA string `json:"va"`
-	ST string `json:"st"`
+	VA   string `json:"va,omitempty"`
+	ST   string `json:"st,omitempty"`
+	URL  string `json:"url,omitempty"`
+	Play string `json:"play,omitempty"`
+}
+
+// UnmarshalJSON handles both object and string representations of playback.
+func (p *Playback) UnmarshalJSON(b []byte) error {
+	var str string
+	if err := json.Unmarshal(b, &str); err == nil {
+		str = strings.TrimSpace(str)
+		if strings.HasPrefix(str, "http://") || strings.HasPrefix(str, "https://") || strings.Contains(str, "://") {
+			p.URL = str
+			p.Play = str
+		} else {
+			p.VA = str
+		}
+		return nil
+	}
+
+	type Alias Playback
+	var aux struct {
+		Alias
+		DirectURL string `json:"url"`
+		PlayVal   string `json:"play"`
+	}
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+
+	p.VA = aux.VA
+	p.ST = aux.ST
+	p.URL = aux.URL
+	p.Play = aux.Play
+
+	if p.URL == "" && aux.DirectURL != "" {
+		p.URL = aux.DirectURL
+	}
+	if p.URL == "" && (strings.HasPrefix(aux.PlayVal, "http://") || strings.HasPrefix(aux.PlayVal, "https://") || strings.Contains(aux.PlayVal, "://")) {
+		p.URL = aux.PlayVal
+	}
+	if p.Play == "" && aux.PlayVal != "" {
+		p.Play = aux.PlayVal
+	}
+
+	return nil
 }
 
 // EpisodeItem represents an episode in a TV season.
@@ -23,6 +72,7 @@ type MediaItem struct {
 	Play     *Playback     `json:"play,omitempty"`
 	VA       string        `json:"va,omitempty"`
 	ST       string        `json:"st,omitempty"`
+	URL      string        `json:"url,omitempty"`
 }
 
 // ResolutionResult represents the final response from the 3-Tier resolver.
@@ -38,6 +88,7 @@ type ResolutionResult struct {
 	Episode *int              `json:"episode,omitempty"`
 	URL     string            `json:"url,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
+	Expiry  *int64            `json:"expiry,omitempty"`
 	Play    *Playback         `json:"play,omitempty"`
 	Error   string            `json:"error,omitempty"`
 }

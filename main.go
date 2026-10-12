@@ -17,21 +17,21 @@ func main() {
 
 	// 1. Tier 1 - Vidara
 	tier1 := tiers.NewVidaraTier(cfg.VidaraURL, cfg.StreamTapeURL, cfg.RequestTimeout)
-	if err := tier1.LoadData(cfg.DataFilePath, "data/vidara.json", "data.json"); err != nil {
+	if err := tier1.LoadData(cfg.VidaraRemoteURL, cfg.DataFilePath, "data/vidara.json", "data.json"); err != nil {
 		log.Printf("[!] Warning loading Vidara data: %v", err)
 	}
 
 	// 2. Tier 2 - Extractor API
 	tier2 := tiers.NewExtractorTier(cfg.AppURLWorker, cfg.VidFastBaseURL, cfg.RequestTimeout)
 
-	// 3. Tier 3 - CineTV
-	tier3 := tiers.NewCineTVTier(cfg.FilminURL, cfg.TMDBKey, cfg.RequestTimeout)
+	// 3. Tier 3 - ShowBox (FilmU)
+	tier3 := tiers.NewTier3(cfg.ShowBoxBaseURL, cfg.ShowBoxAPIKey, cfg.FebboxToken, cfg.TMDBKey, cfg.RequestTimeout)
 
 	// Central Fallback Resolver
 	centralResolver := resolver.NewCentralResolver(tier1, tier2, tier3)
 
 	// API Handlers
-	apiHandler := handlers.NewAPIHandler(centralResolver, tier1, cfg.RequestTimeout)
+	apiHandler := handlers.NewAPIHandler(centralResolver, tier1, tier3, cfg.RequestTimeout)
 
 	mux := http.NewServeMux()
 
@@ -39,6 +39,10 @@ func main() {
 	mux.HandleFunc("/health", apiHandler.HandleHealth)
 	mux.HandleFunc("/api/movie/", apiHandler.HandleMovie)
 	mux.HandleFunc("/api/tv/", apiHandler.HandleTV)
+	mux.HandleFunc("/playlist.m3u", apiHandler.HandleM3UUniversal)
+	mux.HandleFunc("/api/playlist.m3u", apiHandler.HandleM3UUniversal)
+	mux.HandleFunc("/api/reload", apiHandler.HandleReload)
+	mux.HandleFunc("/reload", apiHandler.HandleReload)
 
 	// Preserved Vidara app.py endpoints
 	mux.HandleFunc("/api/resolve", apiHandler.HandleResolve)

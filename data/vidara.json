@@ -10,21 +10,21 @@
         "episode": 1,
         "play": {
           "va": "6a4482e9ae150",
-          "st": "6a44824dcd175"
+          "play": ""
         }
       },
       {
         "episode": 2,
         "play": {
           "va": "6a4482e9ae150",
-          "st": "6a44824dcd175"
+          "play": ""
         }
       },
       {
         "episode": 3,
         "play": {
           "va": "6a4482e9ae150",
-          "st": "6a44824dcd175"
+          "play": ""
         }
       }
     ]
@@ -40,21 +40,21 @@
         "episode": 1,
         "play": {
           "va": "6a4482e9ae150",
-          "st": "6a44824dcd175"
+          "play": ""
         }
       },
       {
         "episode": 2,
         "play": {
           "va": "6a4482e9ae150",
-          "st": "6a44824dcd175"
+          "play": ""
         }
       },
       {
         "episode": 3,
         "play": {
           "va": "6a4482e9ae150",
-          "st": "6a44824dcd175"
+          "play": ""
         }
       }
     ]
@@ -66,7 +66,17 @@
     "quality": "HD",
     "play": {
       "va": "mzfdFOguU87x",
-      "st": "6a44824dcd175"
+      "play": ""
+    }
+  },
+  {
+    "id": 777,
+    "title": "Obsession",
+    "type": "movie",
+    "quality": "HD",
+    "play": {
+      "va": "",
+      "play": "http://192.168.1.8:8080/Download%20(1)/TVSeries/Prodigal%20Son%20-%20Season%201/Season%201%20Episode%2013.mp4"
     }
   }
 ]

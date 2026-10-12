@@ -55,7 +55,7 @@ func (r *CentralResolver) ResolveMovie(ctx context.Context, tmdbID int) (*models
 		}
 	}
 
-	// Tier 3 - CineTV
+	// Tier 3
 	if r.tier3 != nil {
 		res, err := r.tier3.ResolveMovie(ctx, tmdbID)
 		if err != nil {
@@ -100,7 +100,7 @@ func (r *CentralResolver) ResolveTV(ctx context.Context, tmdbID, season, episode
 		}
 	}
 
-	// Tier 3 - CineTV
+	// Tier 3
 	if r.tier3 != nil {
 		res, err := r.tier3.ResolveTV(ctx, tmdbID, season, episode)
 		if err != nil {
