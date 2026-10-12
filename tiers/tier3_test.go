@@ -213,3 +213,38 @@ func TestTier3_ResolveMovie_MockServer(t *testing.T) {
 		t.Errorf("expected Referer https://www.febbox.com/, got %s", streams[0].Referer)
 	}
 }
+
+func TestSelectPreferredStream(t *testing.T) {
+	// Case 1: 1080p present among 4K, 720p, 360p -> Must pick 1080p
+	streamsWith1080p := []StreamOption{
+		{Name: "ShowBox [8.09 GB]", Quality: "4K", QualityRank: 4, SizeGB: 8.09, StreamURL: "https://hls.shegu.net/4k.m3u8"},
+		{Name: "ShowBox [2.95 GB]", Quality: "1080p", QualityRank: 3, SizeGB: 2.95, StreamURL: "https://hls.shegu.net/1080p_best.m3u8"},
+		{Name: "ShowBox [1.50 GB]", Quality: "1080p", QualityRank: 3, SizeGB: 1.50, StreamURL: "https://hls.shegu.net/1080p_low.m3u8"},
+		{Name: "ShowBox [1.47 GB]", Quality: "720p", QualityRank: 2, SizeGB: 1.47, StreamURL: "https://hls.shegu.net/720p.m3u8"},
+	}
+	sel1 := SelectPreferredStream(streamsWith1080p)
+	if sel1.Quality != "1080p" || sel1.StreamURL != "https://hls.shegu.net/1080p_best.m3u8" {
+		t.Errorf("expected 1080p (2.95 GB) to be selected, got %+v", sel1)
+	}
+
+	// Case 2: 1080p NOT in response, 4K is highest -> Must pick 4K
+	streamsNo1080pWith4K := []StreamOption{
+		{Name: "ShowBox [8.09 GB]", Quality: "4K", QualityRank: 4, SizeGB: 8.09, StreamURL: "https://hls.shegu.net/4k.m3u8"},
+		{Name: "ShowBox [1.47 GB]", Quality: "720p", QualityRank: 2, SizeGB: 1.47, StreamURL: "https://hls.shegu.net/720p.m3u8"},
+		{Name: "ShowBox [496 MB]", Quality: "360p", QualityRank: 1, SizeGB: 0.48, StreamURL: "https://hls.shegu.net/360p.m3u8"},
+	}
+	sel2 := SelectPreferredStream(streamsNo1080pWith4K)
+	if sel2.Quality != "4K" || sel2.StreamURL != "https://hls.shegu.net/4k.m3u8" {
+		t.Errorf("expected 4K to be selected when 1080p missing, got %+v", sel2)
+	}
+
+	// Case 3: Neither 1080p nor 4K present -> Must pick highest (720p)
+	streamsOnlyLow := []StreamOption{
+		{Name: "ShowBox [496 MB]", Quality: "360p", QualityRank: 1, SizeGB: 0.48, StreamURL: "https://hls.shegu.net/360p.m3u8"},
+		{Name: "ShowBox [1.47 GB]", Quality: "720p", QualityRank: 2, SizeGB: 1.47, StreamURL: "https://hls.shegu.net/720p.m3u8"},
+	}
+	sel3 := SelectPreferredStream(streamsOnlyLow)
+	if sel3.Quality != "720p" || sel3.StreamURL != "https://hls.shegu.net/720p.m3u8" {
+		t.Errorf("expected 720p to be selected when 1080p/4K missing, got %+v", sel3)
+	}
+}

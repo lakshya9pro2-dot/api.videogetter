@@ -226,6 +226,37 @@ func SortStreams(streams []StreamOption) {
 	})
 }
 
+// SelectPreferredStream selects 1080p always if available;
+// if 1080p is not in the response, it selects the highest available quality stream.
+func SelectPreferredStream(streams []StreamOption) StreamOption {
+	if len(streams) == 0 {
+		return StreamOption{}
+	}
+
+	// 1. Check if 1080p is available (prefer 1080p always)
+	var streams1080p []StreamOption
+	for _, s := range streams {
+		q := strings.ToLower(s.Quality)
+		if strings.Contains(q, "1080") || s.QualityRank == 3 {
+			streams1080p = append(streams1080p, s)
+		}
+	}
+
+	if len(streams1080p) > 0 {
+		// If multiple 1080p options exist, choose the highest file size / best quality one
+		sort.Slice(streams1080p, func(i, j int) bool {
+			return streams1080p[i].SizeGB > streams1080p[j].SizeGB
+		})
+		return streams1080p[0]
+	}
+
+	// 2. If 1080p is not in response, send the highest quality available
+	sorted := make([]StreamOption, len(streams))
+	copy(sorted, streams)
+	SortStreams(sorted)
+	return sorted[0]
+}
+
 // ResolveMovie resolves a movie TMDB ID via Tier 3 (ShowBox / FilmU).
 func (t *Tier3) ResolveMovie(ctx context.Context, tmdbID int) (*models.ResolutionResult, error) {
 	log.Printf("[tier3] resolving movie %d via ShowBox", tmdbID)
@@ -238,7 +269,7 @@ func (t *Tier3) ResolveMovie(ctx context.Context, tmdbID int) (*models.Resolutio
 		return nil, nil // Cascade to clean 404
 	}
 
-	best := streams[0]
+	best := SelectPreferredStream(streams)
 	log.Printf("[tier3] successfully resolved movie %d (%s) -> %s [%s, %.2f GB]", tmdbID, title, best.Quality, best.Name, best.SizeGB)
 
 	var expPtr *int64
@@ -275,7 +306,7 @@ func (t *Tier3) ResolveTV(ctx context.Context, tmdbID, season, episode int) (*mo
 		return nil, nil // Cascade to clean 404
 	}
 
-	best := streams[0]
+	best := SelectPreferredStream(streams)
 	log.Printf("[tier3] successfully resolved TV %d S%dE%d (%s) -> %s [%s, %.2f GB]", tmdbID, season, episode, title, best.Quality, best.Name, best.SizeGB)
 
 	var expPtr *int64

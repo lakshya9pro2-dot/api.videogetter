@@ -165,24 +165,6 @@ func (h *APIHandler) HandleMovie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
-	host := r.Host
-	if host == "" {
-		host = "localhost:8080"
-	}
-	baseURL := fmt.Sprintf("%s://%s", scheme, host)
-
-	if result.Tier == 3 {
-		if result.Expiry != nil && *result.Expiry > 0 {
-			result.URL = fmt.Sprintf("%s/api/movie/%d.m3u&t=%d", baseURL, tmdbID, *result.Expiry)
-		} else {
-			result.URL = fmt.Sprintf("%s/api/movie/%d.m3u", baseURL, tmdbID)
-		}
-	}
-
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(result)
 }
@@ -309,24 +291,6 @@ func (h *APIHandler) HandleTV(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.NewEncoder(w).Encode(result)
 		return
-	}
-
-	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
-	host := r.Host
-	if host == "" {
-		host = "localhost:8080"
-	}
-	baseURL := fmt.Sprintf("%s://%s", scheme, host)
-
-	if result.Tier == 3 {
-		if result.Expiry != nil && *result.Expiry > 0 {
-			result.URL = fmt.Sprintf("%s/api/tv/%d/%d/%d.m3u&t=%d", baseURL, tmdbID, season, episode, *result.Expiry)
-		} else {
-			result.URL = fmt.Sprintf("%s/api/tv/%d/%d/%d.m3u", baseURL, tmdbID, season, episode)
-		}
 	}
 
 	w.WriteHeader(http.StatusOK)
