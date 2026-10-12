@@ -62,7 +62,7 @@ func main() {
 	mux.HandleFunc("/hls.min.js", apiHandler.HandleHlsJs)
 	mux.HandleFunc("/", apiHandler.HandlePlayer)
 
-	handler := handlers.OriginFilterMiddleware(mux, cfg.AllowedOrigin, cfg.RedirectURL)
+	handler := handlers.OriginFilterMiddleware(mux, cfg.AllowedOrigin, cfg.RedirectURL, cfg.APIKey)
 
 	addr := fmt.Sprintf("0.0.0.0:%s", cfg.Port)
 	log.Printf("[*] Server listening on http://%s", addr)

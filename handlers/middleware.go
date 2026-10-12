@@ -59,12 +59,66 @@ func IsAllowedOrigin(origin, referer, allowed string) bool {
 	return false
 }
 
+// IsValidAPIKey checks if the request includes the required secret API key
+// via HTTP headers (X-Api-Key, Key, ApiKey, Authorization) or query parameters (?key=, ?api_key=).
+func IsValidAPIKey(r *http.Request, requiredKey string) bool {
+	if requiredKey == "" {
+		return true
+	}
+	requiredKey = strings.TrimSpace(requiredKey)
+
+	// Check common API key headers
+	headersToCheck := []string{
+		"X-Api-Key",
+		"X-API-Key",
+		"Key",
+		"ApiKey",
+		"Api-Key",
+		"X-Key",
+		"x-api-key",
+		"key",
+		"apikey",
+	}
+	for _, h := range headersToCheck {
+		if val := strings.TrimSpace(r.Header.Get(h)); val != "" {
+			if val == requiredKey {
+				return true
+			}
+		}
+	}
+
+	// Check Authorization header (Bearer <key> or direct <key>)
+	if auth := strings.TrimSpace(r.Header.Get("Authorization")); auth != "" {
+		if auth == requiredKey {
+			return true
+		}
+		if strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+			token := strings.TrimSpace(auth[7:])
+			if token == requiredKey {
+				return true
+			}
+		}
+	}
+
+	// Check query parameters (?key=, ?api_key=, ?apiKey=, ?apikey=, ?k=)
+	queryParams := []string{"key", "api_key", "apiKey", "apikey", "k"}
+	for _, q := range queryParams {
+		if val := strings.TrimSpace(r.URL.Query().Get(q)); val != "" {
+			if val == requiredKey {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // OriginFilterMiddleware enforces that:
 // 1. Health checks (/health) pass unconditionally.
 // 2. The M3U side (.m3u, .m3u8, ?format=m3u) is accessible without any Origin/Referer for all players.
-// 3. All other backend endpoints require Origin or Referer from https://api.kineflex.site.
+// 3. All other backend endpoints require Origin/Referer from https://api.kineflex.site AND the secret key (lakshya9310081539@).
 //    Unauthorized visitors/browsers are 302 redirected to https://api.kineflex.site/.
-func OriginFilterMiddleware(next http.Handler, allowedOrigin, redirectURL string) http.Handler {
+func OriginFilterMiddleware(next http.Handler, allowedOrigin, redirectURL, requiredKey string) http.Handler {
 	if allowedOrigin == "" {
 		allowedOrigin = "https://api.kineflex.site"
 	}
@@ -74,6 +128,11 @@ func OriginFilterMiddleware(next http.Handler, allowedOrigin, redirectURL string
 		redirectURL = "https://api.kineflex.site/"
 	}
 
+	if requiredKey == "" {
+		requiredKey = "lakshya9310081539@"
+	}
+	cleanKey := strings.TrimSpace(requiredKey)
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 1. Health check bypass
 		if r.URL.Path == "/health" {
@@ -81,7 +140,7 @@ func OriginFilterMiddleware(next http.Handler, allowedOrigin, redirectURL string
 			return
 		}
 
-		// 2. M3U side: Fully open to all players without origin
+		// 2. M3U side: Fully open to all players without origin or key
 		if IsM3URequest(r) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, HEAD")
@@ -95,21 +154,27 @@ func OriginFilterMiddleware(next http.Handler, allowedOrigin, redirectURL string
 			return
 		}
 
-		// 3. Main backend: Only allowed from https://api.kineflex.site
-		if IsAllowedOrigin(r.Header.Get("Origin"), r.Header.Get("Referer"), cleanAllowed) {
+		// 3. CORS Preflight (OPTIONS) for allowed origin
+		if r.Method == http.MethodOptions && IsAllowedOrigin(r.Header.Get("Origin"), r.Header.Get("Referer"), cleanAllowed) {
 			w.Header().Set("Access-Control-Allow-Origin", cleanAllowed)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, HEAD")
 			w.Header().Set("Access-Control-Allow-Headers", "*")
 			w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		// 4. Main backend: ONLY respond if Origin/Referer is api.kineflex.site AND valid key is sent
+		if IsAllowedOrigin(r.Header.Get("Origin"), r.Header.Get("Referer"), cleanAllowed) && IsValidAPIKey(r, cleanKey) {
+			w.Header().Set("Access-Control-Allow-Origin", cleanAllowed)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, HEAD")
+			w.Header().Set("Access-Control-Allow-Headers", "*")
+			w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// 4. Unauthorized visitor to backend pages: Redirect to api.kineflex.site
+		// 5. Unauthorized visitor to backend pages: Redirect to api.kineflex.site
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 	})
 }

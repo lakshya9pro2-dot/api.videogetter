@@ -16,6 +16,9 @@ const DefaultAllowedOrigin = "https://api.kineflex.site"
 
 // RedirectURL is where unauthorized users/browsers are redirected.
 const DefaultRedirectURL = "https://api.kineflex.site/"
+
+// DefaultBackendAPIKey is the required secret key sent by api.kineflex.site.
+const DefaultBackendAPIKey = "lakshya9310081539@"
 // ============================================================================
 
 // Config holds runtime configuration settings.
@@ -24,6 +27,7 @@ type Config struct {
 	VidaraRemoteURL string // Remote URL for loading Vidara JSON dataset
 	AllowedOrigin   string // Allowed Origin for backend API access
 	RedirectURL     string // Redirect URL for unauthorized backend visits
+	APIKey          string // Required API key sent by api.kineflex.site
 	AppURLWorker    string
 	ExtractorURL    string
 	VidFastBaseURL  string
@@ -128,11 +132,20 @@ func LoadConfig() *Config {
 		redirectURL = DefaultRedirectURL
 	}
 
+	apiKey := os.Getenv("API_KEY")
+	if apiKey == "" {
+		apiKey = os.Getenv("BACKEND_API_KEY")
+	}
+	if apiKey == "" {
+		apiKey = DefaultBackendAPIKey
+	}
+
 	return &Config{
 		Port:            port,
 		VidaraRemoteURL: vidaraRemoteURL,
 		AllowedOrigin:   allowedOrigin,
 		RedirectURL:     redirectURL,
+		APIKey:          apiKey,
 		AppURLWorker:    appURLWorker,
 		ExtractorURL:    extractorURL,
 		VidFastBaseURL:  vidfastBaseURL,
