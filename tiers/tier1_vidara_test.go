@@ -2,7 +2,10 @@ package tiers
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -213,5 +216,137 @@ func TestVidaraTier_DirectPlayURL(t *testing.T) {
 	}
 	if resTV.URL != "https://cdn.test/direct_tv_s1e1.m3u8" {
 		t.Errorf("expected direct URL https://cdn.test/direct_tv_s1e1.m3u8, got %s", resTV.URL)
+	}
+}
+
+func TestCleanID_StreamHG(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected string
+	}{
+		{"ac7n6t4e5nma", "ac7n6t4e5nma"},
+		{"https://rozgarlelo.modiplay.xyz/proxy.php?p=streamhg&c=ac7n6t4e5nma&noredirect=1", "ac7n6t4e5nma"},
+		{"c=ac7n6t4e5nma", "ac7n6t4e5nma"},
+		{"sh=ac7n6t4e5nma", "ac7n6t4e5nma"},
+		{"https://streamhg.com/e/ac7n6t4e5nma", "ac7n6t4e5nma"},
+		{"https://vibuxer.com/e/ac7n6t4e5nma", "ac7n6t4e5nma"},
+	}
+
+	for _, c := range cases {
+		got := CleanID(c.input)
+		if got != c.expected {
+			t.Errorf("CleanID(%q) = %q; want %q", c.input, got, c.expected)
+		}
+	}
+}
+
+func TestVidaraTier_ExtractStreamHG(t *testing.T) {
+	sampleM3U8 := `#EXTM3U
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio0",NAME="Hindi",LANGUAGE="hi",AUTOSELECT=YES,DEFAULT=YES,URI="/audio-hi.m3u8"
+#EXT-X-STREAM-INF:BANDWIDTH=1500000,RESOLUTION=1280x720
+/video-720p.m3u8
+`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/proxy.php") {
+			c := r.URL.Query().Get("c")
+			if c == "ac7n6t4e5nma" {
+				html := `<!DOCTYPE html><html><body><script>
+var src="\/stream_proxy.php?url=https%3A%2F%2Fvibuxer.com%2Fstream%2FUsD-CIakvOMZlJLS541yQw%2Fkjhhiuahiuhgihdf%2F1792861620%2F75897501%2Fmaster.m3u8&ref=https%3A%2F%2Fvibuxer.com%2Fe%2Fac7n6t4e5nma&tok=2386d64aa4d26480d259ad04a6aec8e8";
+</script></body></html>`
+				w.Header().Set("Content-Type", "text/html")
+				w.Write([]byte(html))
+				return
+			}
+			w.Write([]byte(`var src="";`))
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/stream_proxy.php") {
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			w.Write([]byte(sampleM3U8))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	tier := NewVidaraTier("https://vidara.to", "https://streamtape.com", 2*time.Second)
+	tier.SetStreamHGBase(ts.URL)
+
+	// Test ExtractStreamHG by ID
+	res, err := tier.ExtractStreamHG(context.Background(), "ac7n6t4e5nma")
+	if err != nil {
+		t.Fatalf("ExtractStreamHG failed: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected res.Success=true")
+	}
+	expectedPrefix := ts.URL + "/stream_proxy.php?url=https%3A%2F%2Fvibuxer.com%2Fstream%2F"
+	if !strings.HasPrefix(res.URL, expectedPrefix) {
+		t.Errorf("res.URL=%q does not have expected prefix %q", res.URL, expectedPrefix)
+	}
+	if len(res.AudioTracks) == 0 {
+		t.Errorf("expected dynamic audio tracks parsed from m3u8, got 0")
+	}
+
+	// Test ExtractAny with proxy URL
+	proxyURL := ts.URL + "/proxy.php?p=streamhg&c=ac7n6t4e5nma&noredirect=1"
+	resAny, errAny := tier.ExtractAny(context.Background(), proxyURL)
+	if errAny != nil {
+		t.Fatalf("ExtractAny failed for proxy URL: %v", errAny)
+	}
+	if !resAny.Success || !strings.HasPrefix(resAny.URL, expectedPrefix) {
+		t.Errorf("ExtractAny unexpected result: %+v", resAny)
+	}
+
+	// Test ResolveMovie with SH
+	tier.movieIndex[88801] = MovieRecord{
+		ID:    88801,
+		Title: "StreamHG Movie",
+		Play: models.Playback{
+			VA: "",
+			SH: "ac7n6t4e5nma",
+		},
+	}
+	resM, errM := tier.ResolveMovie(context.Background(), 88801)
+	if errM != nil || resM == nil || !resM.Success {
+		t.Fatalf("ResolveMovie with SH failed: %v, %+v", errM, resM)
+	}
+	if resM.Source != "streamhg" {
+		t.Errorf("expected source 'streamhg', got %q", resM.Source)
+	}
+	if !strings.HasPrefix(resM.URL, expectedPrefix) {
+		t.Errorf("expected URL prefix %q, got %q", expectedPrefix, resM.URL)
+	}
+	if resM.Play == nil || resM.Play.SH != "ac7n6t4e5nma" {
+		t.Errorf("expected play.SH to be preserved in result: %+v", resM.Play)
+	}
+
+	// Test ResolveTV with SH
+	tier.tvIndex[88802] = map[int]map[int]TVEpisodeRecord{
+		1: {
+			1: TVEpisodeRecord{
+				ID:      88802,
+				Title:   "StreamHG Show",
+				Season:  1,
+				Episode: 1,
+				Play: models.Playback{
+					VA: "",
+					SH: "ac7n6t4e5nma",
+				},
+			},
+		},
+	}
+	resTV, errTV := tier.ResolveTV(context.Background(), 88802, 1, 1)
+	if errTV != nil || resTV == nil || !resTV.Success {
+		t.Fatalf("ResolveTV with SH failed: %v, %+v", errTV, resTV)
+	}
+	if resTV.Source != "streamhg" {
+		t.Errorf("expected source 'streamhg', got %q", resTV.Source)
+	}
+	if !strings.HasPrefix(resTV.URL, expectedPrefix) {
+		t.Errorf("expected URL prefix %q, got %q", expectedPrefix, resTV.URL)
+	}
+	if resTV.Play == nil || resTV.Play.SH != "ac7n6t4e5nma" {
+		t.Errorf("expected play.SH to be preserved in result: %+v", resTV.Play)
 	}
 }

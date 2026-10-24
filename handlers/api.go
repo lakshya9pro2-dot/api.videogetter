@@ -102,7 +102,7 @@ func (h *APIHandler) HandleMovie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 50*time.Second)
 	defer cancel()
 
 	if isM3U {
@@ -224,7 +224,7 @@ func (h *APIHandler) HandleTV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 50*time.Second)
 	defer cancel()
 
 	if isM3U {

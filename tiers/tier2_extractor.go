@@ -76,6 +76,21 @@ func NewExtractorTier(workerURL, vidfastBaseURL string, timeout time.Duration) *
 	}
 }
 
+// SetTimeoutSeconds configures the timeout parameter passed to the extractor API.
+func (t *ExtractorTier) SetTimeoutSeconds(sec int) {
+	if sec > 0 {
+		t.timeoutSeconds = sec
+	}
+}
+
+// GetTimeoutSeconds returns the timeout in seconds passed to the extractor API.
+func (t *ExtractorTier) GetTimeoutSeconds() int {
+	if t.timeoutSeconds <= 0 {
+		return defaultTimeoutSeconds
+	}
+	return t.timeoutSeconds
+}
+
 // GetCachedExtractorURL returns the currently cached extractor URL and its expiration time.
 func (t *ExtractorTier) GetCachedExtractorURL() (string, time.Time) {
 	t.cacheMu.RLock()
@@ -217,14 +232,23 @@ func (t *ExtractorTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.R
 	targetURL := fmt.Sprintf("%s/movie/%d", t.vidfastBaseURL, tmdbID)
 	log.Printf("[tier2] extracting VidFast URL for movie %d: %s", tmdbID, targetURL)
 
-	streamURL, err := t.callExtractor(ctx, targetURL)
+	// Enforce dedicated per-tier timeout so Tier 2 cannot exhaust the parent request budget
+	tierBudget := time.Duration(t.GetTimeoutSeconds()+3) * time.Second
+	tierCtx, cancel := context.WithTimeout(ctx, tierBudget)
+	defer cancel()
+
+	streamURL, err := t.callExtractor(tierCtx, targetURL)
 	if err != nil {
-		log.Printf("[tier2] failed: %v", err)
+		if tierCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
+			log.Printf("[tier2] movie %d timed out after %v, falling back to next tier", tmdbID, tierBudget)
+		} else {
+			log.Printf("[tier2] movie %d failed: %v", tmdbID, err)
+		}
 		return nil, nil // Return nil to allow fallback to Tier 3
 	}
 
 	if streamURL == "" {
-		log.Printf("[tier2] failed: extractor returned empty url")
+		log.Printf("[tier2] movie %d failed: extractor returned empty url", tmdbID)
 		return nil, nil
 	}
 
@@ -248,14 +272,23 @@ func (t *ExtractorTier) ResolveTV(ctx context.Context, tmdbID, season, episode i
 	targetURL := fmt.Sprintf("%s/tv/%d/%d/%d", t.vidfastBaseURL, tmdbID, season, episode)
 	log.Printf("[tier2] extracting VidFast URL for TV %d S%dE%d: %s", tmdbID, season, episode, targetURL)
 
-	streamURL, err := t.callExtractor(ctx, targetURL)
+	// Enforce dedicated per-tier timeout so Tier 2 cannot exhaust the parent request budget
+	tierBudget := time.Duration(t.GetTimeoutSeconds()+3) * time.Second
+	tierCtx, cancel := context.WithTimeout(ctx, tierBudget)
+	defer cancel()
+
+	streamURL, err := t.callExtractor(tierCtx, targetURL)
 	if err != nil {
-		log.Printf("[tier2] failed: %v", err)
+		if tierCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
+			log.Printf("[tier2] TV %d S%dE%d timed out after %v, falling back to next tier", tmdbID, season, episode, tierBudget)
+		} else {
+			log.Printf("[tier2] TV %d S%dE%d failed: %v", tmdbID, season, episode, err)
+		}
 		return nil, nil // Return nil to allow fallback to Tier 3
 	}
 
 	if streamURL == "" {
-		log.Printf("[tier2] failed: extractor returned empty url")
+		log.Printf("[tier2] TV %d S%dE%d failed: extractor returned empty url", tmdbID, season, episode)
 		return nil, nil
 	}
 
@@ -341,7 +374,7 @@ func (t *ExtractorTier) doExtractRequest(ctx context.Context, baseURL, targetURL
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		isNetFail := resp.StatusCode >= 500 || resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadGateway
+		isNetFail := resp.StatusCode >= 500 || resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusGatewayTimeout
 		return "", isNetFail, fmt.Errorf("extractor http status %d", resp.StatusCode)
 	}
 

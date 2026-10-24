@@ -24,6 +24,9 @@ import (
 // DefaultVidaraJSONURL is the default remote URL for the Tier 1 JSON dataset.
 const DefaultVidaraJSONURL = "https://www.jsonkeeper.com/b/FWSAK"
 
+// DefaultStreamHGProxyBase is the default base URL for the StreamHG proxy resolver.
+const DefaultStreamHGProxyBase = "https://rozgarlelo.modiplay.xyz"
+
 var (
 	streamtapeDomains = map[string]bool{
 		"streamtape.com":     true,
@@ -61,10 +64,12 @@ var (
 	}
 
 	reCleanID       = regexp.MustCompile(`[^a-zA-Z0-9_\-]`)
-	reSTParam       = regexp.MustCompile(`(?i)(?:st\?play=|\bst/|/st/|[?&]st=|[?&]play=)([^/&?#\s]+)`)
+	reSTParam       = regexp.MustCompile(`(?i)(?:st\?play=|\bst/|/st/|[?&]st=|\bst=|[?&]play=)([^/&?#\s]+)`)
 	reSTFull        = regexp.MustCompile(`(?i)streamtape\.com/v/([a-zA-Z0-9_\-]+)`)
-	reVAParam       = regexp.MustCompile(`(?i)(?:va\?playd=|\bva/|/va/|[?&]va=|[?&]playd=)([^/&?#\s]+)`)
+	reVAParam       = regexp.MustCompile(`(?i)(?:va\?playd=|\bva/|/va/|[?&]va=|\bva=|[?&]playd=)([^/&?#\s]+)`)
 	reVAFull        = regexp.MustCompile(`(?i)vidara\.to/v/([a-zA-Z0-9_\-]+)`)
+	reSHParam       = regexp.MustCompile(`(?i)(?:sh\?play=|\bsh/|/sh/|[?&]sh=|\bsh=|[?&]c=|\bc=)([^/&?#\s]+)`)
+	reVarSrc        = regexp.MustCompile(`(?i)var\s+src\s*=\s*"([^"]+)"`)
 	reTitle         = regexp.MustCompile(`(?i)<title>(.*?)</title>`)
 	reBotlink       = regexp.MustCompile(`(?i)botlink['"]\)\.innerHTML\s*=\s*([^;]+);`)
 	reRobotlink     = regexp.MustCompile(`(?i)getElementById\(['"](?:no)?robotlink['"]\)\.innerHTML\s*=\s*([^;]+);`)
@@ -103,6 +108,7 @@ type VidaraTier struct {
 	tvIndex       map[int]map[int]map[int]TVEpisodeRecord // tmdbID -> season -> episode -> record
 	vidaraBase    string
 	streamBase    string
+	streamHGBase  string
 	client        *http.Client
 	noRedirClient *http.Client
 	loadedSources []string
@@ -118,17 +124,25 @@ func NewVidaraTier(vidaraBase, streamtapeBase string, timeout time.Duration) *Vi
 	}
 
 	return &VidaraTier{
-		movieIndex: make(map[int]MovieRecord),
-		tvIndex:    make(map[int]map[int]map[int]TVEpisodeRecord),
-		vidaraBase: strings.TrimRight(vidaraBase, "/"),
-		streamBase: strings.TrimRight(streamtapeBase, "/"),
-		client:     &http.Client{Timeout: timeout},
+		movieIndex:   make(map[int]MovieRecord),
+		tvIndex:      make(map[int]map[int]map[int]TVEpisodeRecord),
+		vidaraBase:   strings.TrimRight(vidaraBase, "/"),
+		streamBase:   strings.TrimRight(streamtapeBase, "/"),
+		streamHGBase: DefaultStreamHGProxyBase,
+		client:       &http.Client{Timeout: timeout},
 		noRedirClient: &http.Client{
 			Timeout: timeout,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
 		},
+	}
+}
+
+// SetStreamHGBase configures the proxy base URL for StreamHG.
+func (v *VidaraTier) SetStreamHGBase(base string) {
+	if base != "" {
+		v.streamHGBase = strings.TrimRight(strings.TrimSpace(base), "/")
 	}
 }
 
@@ -140,6 +154,17 @@ func CleanID(val string) string {
 	val = strings.TrimSpace(val)
 	val = strings.ReplaceAll(val, "(id)", "")
 	val = strings.ReplaceAll(val, "%28id%29", "")
+	if strings.Contains(val, "c=") || strings.Contains(val, "sh=") {
+		if m := reSHParam.FindStringSubmatch(val); len(m) > 1 {
+			val = m[1]
+		} else if u, err := url.Parse(val); err == nil {
+			if c := u.Query().Get("c"); c != "" {
+				val = c
+			} else if sh := u.Query().Get("sh"); sh != "" {
+				val = sh
+			}
+		}
+	}
 	if strings.Contains(val, "://") {
 		u, err := url.Parse(val)
 		if err == nil {
@@ -243,6 +268,9 @@ func (v *VidaraTier) LoadData(paths ...string) error {
 			}
 			if play.ST == "" && item.ST != "" {
 				play.ST = item.ST
+			}
+			if play.SH == "" && item.SH != "" {
+				play.SH = item.SH
 			}
 			if play.URL == "" && item.URL != "" {
 				play.URL = item.URL
@@ -355,16 +383,30 @@ func (v *VidaraTier) scanItemsManually(raw string) []models.MediaItem {
 	var results []models.MediaItem
 
 	// Scan movies
-	reMovie := regexp.MustCompile(`(?i)\{\s*"id":\s*(\d+).*?"title":\s*"([^"]+)".*?"type":\s*"movie".*?"va":\s*"([^"]+)".*?"st":\s*"([^"]+)"`)
+	reMovie := regexp.MustCompile(`(?i)\{\s*"id":\s*(\d+).*?"title":\s*"([^"]+)".*?"type":\s*"movie"([^}]*)\}`)
 	for _, m := range reMovie.FindAllStringSubmatch(raw, -1) {
 		id, _ := strconv.Atoi(m[1])
+		rest := m[3]
+		va := ""
+		sh := ""
+		st := ""
+		if mVa := regexp.MustCompile(`(?i)"va":\s*"([^"]*)"`).FindStringSubmatch(rest); len(mVa) > 1 {
+			va = mVa[1]
+		}
+		if mSh := regexp.MustCompile(`(?i)"sh":\s*"([^"]*)"`).FindStringSubmatch(rest); len(mSh) > 1 {
+			sh = mSh[1]
+		}
+		if mSt := regexp.MustCompile(`(?i)"st":\s*"([^"]*)"`).FindStringSubmatch(rest); len(mSt) > 1 {
+			st = mSt[1]
+		}
 		results = append(results, models.MediaItem{
 			ID:    id,
 			Title: m[2],
 			Type:  "movie",
 			Play: &models.Playback{
-				VA: CleanID(m[3]),
-				ST: CleanID(m[4]),
+				VA: CleanID(va),
+				SH: CleanID(sh),
+				ST: CleanID(st),
 			},
 		})
 	}
@@ -382,15 +424,29 @@ func (v *VidaraTier) scanItemsManually(raw string) []models.MediaItem {
 			reSeason := regexp.MustCompile(sPattern)
 			if sMatch := reSeason.FindStringSubmatch(raw); len(sMatch) > 1 {
 				epBlock := sMatch[1]
-				reEp := regexp.MustCompile(`(?i)"episode":\s*(\d+).*?"va":\s*"([^"]+)".*?"st":\s*"([^"]+)"`)
+				reEp := regexp.MustCompile(`(?i)\{\s*"episode":\s*(\d+)([^}]*)\}`)
 				var episodes []models.EpisodeItem
 				for _, epM := range reEp.FindAllStringSubmatch(epBlock, -1) {
 					epNum, _ := strconv.Atoi(epM[1])
+					epRest := epM[2]
+					va := ""
+					sh := ""
+					st := ""
+					if mVa := regexp.MustCompile(`(?i)"va":\s*"([^"]*)"`).FindStringSubmatch(epRest); len(mVa) > 1 {
+						va = mVa[1]
+					}
+					if mSh := regexp.MustCompile(`(?i)"sh":\s*"([^"]*)"`).FindStringSubmatch(epRest); len(mSh) > 1 {
+						sh = mSh[1]
+					}
+					if mSt := regexp.MustCompile(`(?i)"st":\s*"([^"]*)"`).FindStringSubmatch(epRest); len(mSt) > 1 {
+						st = mSt[1]
+					}
 					episodes = append(episodes, models.EpisodeItem{
 						Episode: epNum,
 						Play: models.Playback{
-							VA: CleanID(epM[2]),
-							ST: CleanID(epM[3]),
+							VA: CleanID(va),
+							SH: CleanID(sh),
+							ST: CleanID(st),
 						},
 					})
 				}
@@ -435,11 +491,11 @@ func (v *VidaraTier) FindTV(tmdbID, season, episode int) (TVEpisodeRecord, bool)
 }
 
 // CheckDirectPlayURL inspects a Playback object:
-// - If VA has code: returns ("", false) indicating Tier 1 should perform standard resolution.
-// - If VA has no code (is empty) and play has a direct URL: returns (directURL, true) so Tier 1 sends it directly without resolution.
+// - If VA or SH has code: returns ("", false) indicating Tier 1 should perform standard resolution.
+// - If VA and SH have no code and play has a direct URL: returns (directURL, true) so Tier 1 sends it directly without resolution.
 func CheckDirectPlayURL(play models.Playback) (string, bool) {
-	// If VA has code, let Tier 1 do its standard resolver work
-	if strings.TrimSpace(play.VA) != "" {
+	// If VA or SH has code, let Tier 1 do its standard resolver work
+	if strings.TrimSpace(play.VA) != "" || strings.TrimSpace(play.SH) != "" {
 		return "", false
 	}
 
@@ -484,7 +540,7 @@ func (v *VidaraTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.Reso
 
 	log.Printf("[tier1] found movie %d (%s) in Vidara dataset", tmdbID, rec.Title)
 
-	// If VA has no code and play has a direct URL, send to response directly (no resolution needed)
+	// If VA and SH have no code and play has a direct URL, send to response directly (no resolution needed)
 	if directURL, ok := v.CheckDirectPlay(rec.Play); ok {
 		log.Printf("[tier1] movie %d has direct play URL, sending direct without resolution: %s", tmdbID, directURL)
 		return &models.ResolutionResult{
@@ -500,12 +556,15 @@ func (v *VidaraTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.Reso
 				"Origin":  "https://vidara.to",
 			},
 			Play: &models.Playback{
+				VA:  rec.Play.VA,
+				SH:  rec.Play.SH,
+				ST:  rec.Play.ST,
 				URL: directURL,
 			},
 		}, nil
 	}
 
-	// If VA has code: Tier 1 does its resolver work
+	// If VA or SH has code: Tier 1 does its resolver work
 	res := &models.ResolutionResult{
 		Success: true,
 		TmdbID:  tmdbID,
@@ -519,14 +578,21 @@ func (v *VidaraTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.Reso
 		},
 		Play: &models.Playback{
 			VA: rec.Play.VA,
+			SH: rec.Play.SH,
 			ST: rec.Play.ST,
 		},
 	}
 
 	// Attempt stream resolution with a fast bounded timeout
-	streamURL := v.tryResolveStream(ctx, rec.Play.VA, rec.Play.ST)
+	streamURL, hdrs, src := v.tryResolveStream(ctx, rec.Play.VA, rec.Play.SH, rec.Play.ST)
 	if streamURL != "" {
 		res.URL = streamURL
+		if len(hdrs) > 0 {
+			res.Headers = hdrs
+		}
+		if src != "" {
+			res.Source = src
+		}
 	}
 
 	return res, nil
@@ -543,7 +609,7 @@ func (v *VidaraTier) ResolveTV(ctx context.Context, tmdbID, season, episode int)
 
 	log.Printf("[tier1] found TV %d S%dE%d (%s) in Vidara dataset", tmdbID, season, episode, rec.Title)
 
-	// If VA has no code and play has a direct URL, send to response directly (no resolution needed)
+	// If VA and SH have no code and play has a direct URL, send to response directly (no resolution needed)
 	if directURL, ok := v.CheckDirectPlay(rec.Play); ok {
 		log.Printf("[tier1] TV %d S%dE%d has direct play URL, sending direct without resolution: %s", tmdbID, season, episode, directURL)
 		return &models.ResolutionResult{
@@ -561,12 +627,15 @@ func (v *VidaraTier) ResolveTV(ctx context.Context, tmdbID, season, episode int)
 				"Origin":  "https://vidara.to",
 			},
 			Play: &models.Playback{
+				VA:  rec.Play.VA,
+				SH:  rec.Play.SH,
+				ST:  rec.Play.ST,
 				URL: directURL,
 			},
 		}, nil
 	}
 
-	// If VA has code: Tier 1 does its resolver work
+	// If VA or SH has code: Tier 1 does its resolver work
 	res := &models.ResolutionResult{
 		Success: true,
 		TmdbID:  tmdbID,
@@ -582,21 +651,28 @@ func (v *VidaraTier) ResolveTV(ctx context.Context, tmdbID, season, episode int)
 		},
 		Play: &models.Playback{
 			VA: rec.Play.VA,
+			SH: rec.Play.SH,
 			ST: rec.Play.ST,
 		},
 	}
 
 	// Attempt stream resolution with a fast bounded timeout
-	streamURL := v.tryResolveStream(ctx, rec.Play.VA, rec.Play.ST)
+	streamURL, hdrs, src := v.tryResolveStream(ctx, rec.Play.VA, rec.Play.SH, rec.Play.ST)
 	if streamURL != "" {
 		res.URL = streamURL
+		if len(hdrs) > 0 {
+			res.Headers = hdrs
+		}
+		if src != "" {
+			res.Source = src
+		}
 	}
 
 	return res, nil
 }
 
-// tryResolveStream attempts to fetch playable stream URL from VA or ST within context.
-func (v *VidaraTier) tryResolveStream(ctx context.Context, vaID, stID string) string {
+// tryResolveStream attempts to fetch playable stream URL from VA, SH, or ST within context.
+func (v *VidaraTier) tryResolveStream(ctx context.Context, vaID, shID, stID string) (string, map[string]string, string) {
 	resolveCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 
@@ -604,21 +680,30 @@ func (v *VidaraTier) tryResolveStream(ctx context.Context, vaID, stID string) st
 		log.Printf("[tier1] extracting stream for va=%s", vaID)
 		if ext, err := v.ExtractVidara(resolveCtx, vaID); err == nil && ext != nil && ext.URL != "" {
 			log.Printf("[tier1] successfully extracted Vidara stream: %s", ext.URL)
-			return ext.URL
+			return ext.URL, ext.Headers, "vidara"
 		} else if err != nil {
 			log.Printf("[tier1] ExtractVidara error for %s: %v", vaID, err)
+		}
+	}
+	if shID != "" {
+		log.Printf("[tier1] extracting stream for sh=%s", shID)
+		if ext, err := v.ExtractStreamHG(resolveCtx, shID); err == nil && ext != nil && ext.URL != "" {
+			log.Printf("[tier1] successfully extracted StreamHG stream: %s", ext.URL)
+			return ext.URL, ext.Headers, "streamhg"
+		} else if err != nil {
+			log.Printf("[tier1] ExtractStreamHG error for %s: %v", shID, err)
 		}
 	}
 	if stID != "" {
 		log.Printf("[tier1] extracting stream for st=%s", stID)
 		if ext, err := v.ExtractStreamTape(resolveCtx, stID); err == nil && ext != nil && ext.URL != "" {
 			log.Printf("[tier1] successfully extracted Streamtape stream: %s", ext.URL)
-			return ext.URL
+			return ext.URL, ext.Headers, "streamtape"
 		} else if err != nil {
 			log.Printf("[tier1] ExtractStreamTape error for %s: %v", stID, err)
 		}
 	}
-	return ""
+	return "", nil, ""
 }
 
 // ExtractVidara extracts streaming URL from Vidara upstream.
@@ -963,6 +1048,94 @@ func (v *VidaraTier) ExtractAudioTracksFromM3U(ctx context.Context, m3uURL strin
 	return tracks
 }
 
+// ExtractStreamHG extracts streaming URL from StreamHG proxy upstream.
+func (v *VidaraTier) ExtractStreamHG(ctx context.Context, urlOrID string) (*models.ExtractorResponse, error) {
+	fileCode := CleanID(urlOrID)
+	if fileCode == "" {
+		return nil, fmt.Errorf("empty streamhg id")
+	}
+
+	proxyBase := v.streamHGBase
+	if proxyBase == "" {
+		proxyBase = DefaultStreamHGProxyBase
+	}
+	targetURL := fmt.Sprintf("%s/proxy.php?p=streamhg&c=%s&noredirect=1", proxyBase, fileCode)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	for k, val := range defaultHeaders {
+		req.Header.Set(k, val)
+	}
+	req.Header.Set("Referer", "https://streamhg.com/")
+	req.Header.Set("Origin", "https://streamhg.com")
+
+	resp, err := v.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("streamhg proxy returned status %d", resp.StatusCode)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	html := string(bodyBytes)
+
+	m := reVarSrc.FindStringSubmatch(html)
+	if len(m) < 2 {
+		return nil, fmt.Errorf("streamhg var src not found in proxy response")
+	}
+
+	rawSrc := strings.TrimSpace(m[1])
+	rawSrc = strings.ReplaceAll(rawSrc, `\/`, `/`)
+	if rawSrc == "" {
+		return nil, fmt.Errorf("streamhg returned empty stream url")
+	}
+
+	var streamURL string
+	if strings.HasPrefix(rawSrc, "http://") || strings.HasPrefix(rawSrc, "https://") {
+		streamURL = rawSrc
+	} else if strings.HasPrefix(rawSrc, "//") {
+		streamURL = "https:" + rawSrc
+	} else if strings.HasPrefix(rawSrc, "/") {
+		streamURL = proxyBase + rawSrc
+	} else {
+		streamURL = proxyBase + "/" + rawSrc
+	}
+
+	title := ""
+	if mTitle := reTitle.FindStringSubmatch(html); len(mTitle) > 1 {
+		title = strings.TrimSpace(mTitle[1])
+	}
+
+	var dynamicAudio []models.AudioTrack
+	if strings.Contains(streamURL, ".m3u8") {
+		dynamicAudio = v.ExtractAudioTracksFromM3U(ctx, streamURL)
+	}
+
+	return &models.ExtractorResponse{
+		Status:      "success",
+		Success:     true,
+		Source:      "StreamHG",
+		OriginalURL: "/e/" + fileCode,
+		URL:         streamURL,
+		Text:        title,
+		Title:       title,
+		StreamType:  "m3u8",
+		AudioTracks: dynamicAudio,
+		Headers: map[string]string{
+			"Referer": proxyBase + "/",
+			"Origin":  proxyBase,
+		},
+	}, nil
+}
+
 // ExtractAny extracts stream from any supported host.
 func (v *VidaraTier) ExtractAny(ctx context.Context, targetURL string) (*models.ExtractorResponse, error) {
 	targetURL = strings.TrimSpace(targetURL)
@@ -982,6 +1155,9 @@ func (v *VidaraTier) ExtractAny(ctx context.Context, targetURL string) (*models.
 	if streamtapeDomains[domain] || strings.Contains(domain, "streamtape") {
 		return v.ExtractStreamTape(ctx, targetURL)
 	}
+	if strings.Contains(domain, "streamhg") || strings.Contains(domain, "vibuxer") || strings.Contains(targetURL, "p=streamhg") || strings.Contains(targetURL, "stream_proxy.php") {
+		return v.ExtractStreamHG(ctx, targetURL)
+	}
 
 	if strings.Contains(targetURL, "/api/stream") || strings.Contains(targetURL, "/v/") {
 		res, err := v.ExtractVidara(ctx, targetURL)
@@ -989,6 +1165,9 @@ func (v *VidaraTier) ExtractAny(ctx context.Context, targetURL string) (*models.
 			return res, nil
 		}
 		return v.ExtractStreamTape(ctx, targetURL)
+	}
+	if strings.Contains(targetURL, "/e/") || strings.Contains(targetURL, "proxy.php") {
+		return v.ExtractStreamHG(ctx, targetURL)
 	}
 
 	return nil, fmt.Errorf("unsupported host/domain '%s'", domain)

@@ -5,10 +5,11 @@ import (
 	"strings"
 )
 
-// Playback holds playback identifiers for Vidara and Streamtape, or a direct stream URL.
+// Playback holds playback identifiers for Vidara, Streamtape, StreamHG, or a direct stream URL.
 type Playback struct {
 	VA   string `json:"va,omitempty"`
 	ST   string `json:"st,omitempty"`
+	SH   string `json:"sh,omitempty"`
 	URL  string `json:"url,omitempty"`
 	Play string `json:"play,omitempty"`
 }
@@ -39,6 +40,7 @@ func (p *Playback) UnmarshalJSON(b []byte) error {
 
 	p.VA = aux.VA
 	p.ST = aux.ST
+	p.SH = aux.SH
 	p.URL = aux.URL
 	p.Play = aux.Play
 
@@ -72,6 +74,7 @@ type MediaItem struct {
 	Play     *Playback     `json:"play,omitempty"`
 	VA       string        `json:"va,omitempty"`
 	ST       string        `json:"st,omitempty"`
+	SH       string        `json:"sh,omitempty"`
 	URL      string        `json:"url,omitempty"`
 }
 

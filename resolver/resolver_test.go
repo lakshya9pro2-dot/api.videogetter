@@ -211,4 +211,33 @@ func TestTVFallback_Order(t *testing.T) {
 	if res4.Success || res4.Error != "source_not_found" {
 		t.Fatalf("expected failure for nonexistent TV")
 	}
+
+	// Case 5: 4-Tier Fallback (Tier 1 fails -> Tier 2 fails -> Tier 3 fails -> Tier 4 succeeds)
+	t4Success := &mockTier{
+		tvHandler: func(ctx context.Context, tmdbID, season, episode int) (*models.ResolutionResult, error) {
+			return &models.ResolutionResult{Success: true, TmdbID: tmdbID, Season: &season, Episode: &episode, Tier: 4, Source: "showbox"}, nil
+		},
+	}
+	r5 := NewCentralResolver(t1Fail, t1Fail, t1Fail, t4Success)
+	res5, _ := r5.ResolveTV(context.Background(), 1399, 1, 6)
+	if !res5.Success || res5.Tier != 4 || res5.Source != "showbox" {
+		t.Fatalf("expected Tier 4 TV resolution, got %+v", res5)
+	}
+}
+
+func TestMovieFallback_Tier4Succeeds(t *testing.T) {
+	t1Fail := &mockTier{movieHandler: func(ctx context.Context, tmdbID int) (*models.ResolutionResult, error) { return nil, nil }}
+	t2Fail := &mockTier{movieHandler: func(ctx context.Context, tmdbID int) (*models.ResolutionResult, error) { return nil, nil }}
+	t3Fail := &mockTier{movieHandler: func(ctx context.Context, tmdbID int) (*models.ResolutionResult, error) { return nil, nil }}
+	t4Success := &mockTier{
+		movieHandler: func(ctx context.Context, tmdbID int) (*models.ResolutionResult, error) {
+			return &models.ResolutionResult{Success: true, TmdbID: tmdbID, Tier: 4, Source: "showbox", URL: "http://stream.m3u8"}, nil
+		},
+	}
+
+	r := NewCentralResolver(t1Fail, t2Fail, t3Fail, t4Success)
+	res, err := r.ResolveMovie(context.Background(), 550)
+	if err != nil || !res.Success || res.Tier != 4 || res.Source != "showbox" {
+		t.Fatalf("expected Tier 4 movie resolution, got %+v (err: %v)", res, err)
+	}
 }

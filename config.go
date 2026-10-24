@@ -33,13 +33,17 @@ type Config struct {
 	VidFastBaseURL  string
 	VidaraURL       string
 	StreamTapeURL   string
+	StreamHGProxyURL string
+	VidriftBaseURL  string // Base URL for Vidrift embed host (Tier 3)
 	Tier3BaseURL    string
+	Tier4BaseURL    string // Base URL for ShowBox/FilmU (Tier 4)
 	ShowBoxBaseURL  string
 	ShowBoxAPIKey   string
 	FebboxToken     string
 	TMDBKey         string
 	DataFilePath    string
 	RequestTimeout  time.Duration
+	VidFastTimeoutSeconds int
 }
 
 // LoadConfig initializes Config from environment variables or sensible defaults.
@@ -74,14 +78,26 @@ func LoadConfig() *Config {
 		streamTapeURL = "https://streamtape.com"
 	}
 
-	tier3BaseURL := os.Getenv("TIER3_BASE_URL")
-	if tier3BaseURL == "" {
-		tier3BaseURL = os.Getenv("FILMIN_BASE_URL")
+	streamHGProxyURL := os.Getenv("STREAMHG_PROXY_URL")
+	if streamHGProxyURL == "" {
+		streamHGProxyURL = "https://rozgarlelo.modiplay.xyz"
+	}
+
+	vidriftBaseURL := os.Getenv("VIDRIFT_BASE_URL")
+	if vidriftBaseURL == "" {
+		vidriftBaseURL = "https://embed.vidrift.in"
+	}
+
+	tier3BaseURL := vidriftBaseURL
+
+	tier4BaseURL := os.Getenv("TIER4_BASE_URL")
+	if tier4BaseURL == "" {
+		tier4BaseURL = os.Getenv("FILMIN_BASE_URL")
 	}
 
 	showBoxBaseURL := os.Getenv("SHOWBOX_BASE_URL")
 	if showBoxBaseURL == "" {
-		showBoxBaseURL = tier3BaseURL
+		showBoxBaseURL = tier4BaseURL
 	}
 	if showBoxBaseURL == "" {
 		showBoxBaseURL = "https://box.filmu.in"
@@ -111,6 +127,13 @@ func LoadConfig() *Config {
 	if secStr := os.Getenv("REQUEST_TIMEOUT_SECONDS"); secStr != "" {
 		if s, err := strconv.Atoi(secStr); err == nil && s > 0 {
 			timeoutSec = s
+		}
+	}
+
+	vidfastTimeoutSec := 10
+	if secStr := os.Getenv("VIDFAST_TIMEOUT_SECONDS"); secStr != "" {
+		if s, err := strconv.Atoi(secStr); err == nil && s > 0 {
+			vidfastTimeoutSec = s
 		}
 	}
 
@@ -151,12 +174,16 @@ func LoadConfig() *Config {
 		VidFastBaseURL:  vidfastBaseURL,
 		VidaraURL:       vidaraURL,
 		StreamTapeURL:   streamTapeURL,
+		StreamHGProxyURL: streamHGProxyURL,
+		VidriftBaseURL:  vidriftBaseURL,
 		Tier3BaseURL:    tier3BaseURL,
+		Tier4BaseURL:    tier4BaseURL,
 		ShowBoxBaseURL:  showBoxBaseURL,
 		ShowBoxAPIKey:   showBoxAPIKey,
 		FebboxToken:     febboxToken,
 		TMDBKey:         tmdbKey,
 		DataFilePath:    dataFilePath,
 		RequestTimeout:  time.Duration(timeoutSec) * time.Second,
+		VidFastTimeoutSeconds: vidfastTimeoutSec,
 	}
 }

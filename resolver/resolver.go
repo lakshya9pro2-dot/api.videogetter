@@ -13,27 +13,33 @@ type TierResolver interface {
 	ResolveTV(ctx context.Context, tmdbID, season, episode int) (*models.ResolutionResult, error)
 }
 
-// CentralResolver coordinates the fallback logic across Tier 1, Tier 2, and Tier 3.
+// CentralResolver coordinates the fallback logic across Tier 1, Tier 2, Tier 3, and Tier 4.
 type CentralResolver struct {
 	tier1 TierResolver
 	tier2 TierResolver
 	tier3 TierResolver
+	tier4 TierResolver
 }
 
-// NewCentralResolver creates a new resolver orchestrator.
-func NewCentralResolver(tier1, tier2, tier3 TierResolver) *CentralResolver {
+// NewCentralResolver creates a new resolver orchestrator supporting 3 or 4 tiers.
+func NewCentralResolver(tier1, tier2, tier3 TierResolver, extraTiers ...TierResolver) *CentralResolver {
+	var tier4 TierResolver
+	if len(extraTiers) > 0 {
+		tier4 = extraTiers[0]
+	}
 	return &CentralResolver{
 		tier1: tier1,
 		tier2: tier2,
 		tier3: tier3,
+		tier4: tier4,
 	}
 }
 
-// ResolveMovie resolves a movie TMDB ID across Tier 1 -> Tier 2 -> Tier 3 in strict order.
+// ResolveMovie resolves a movie TMDB ID across Tier 1 -> Tier 2 -> Tier 3 -> Tier 4 in strict order.
 func (r *CentralResolver) ResolveMovie(ctx context.Context, tmdbID int) (*models.ResolutionResult, error) {
 	log.Printf("[resolver] movie %d", tmdbID)
 
-	// Tier 1 - Vidara
+	// Tier 1 - Vidara & StreamHG
 	if r.tier1 != nil {
 		res, err := r.tier1.ResolveMovie(ctx, tmdbID)
 		if err != nil {
@@ -44,7 +50,7 @@ func (r *CentralResolver) ResolveMovie(ctx context.Context, tmdbID int) (*models
 		}
 	}
 
-	// Tier 2 - Extractor
+	// Tier 2 - Extractor (VidFast)
 	if r.tier2 != nil {
 		res, err := r.tier2.ResolveMovie(ctx, tmdbID)
 		if err != nil {
@@ -55,13 +61,24 @@ func (r *CentralResolver) ResolveMovie(ctx context.Context, tmdbID int) (*models
 		}
 	}
 
-	// Tier 3
+	// Tier 3 - Vidrift (Evion -> Atlas -> Vela)
 	if r.tier3 != nil {
 		res, err := r.tier3.ResolveMovie(ctx, tmdbID)
 		if err != nil {
 			log.Printf("[resolver] tier3 error for movie %d: %v", tmdbID, err)
 		} else if res != nil && res.Success {
 			log.Printf("[resolver] resolved movie %d via Tier 3", tmdbID)
+			return res, nil
+		}
+	}
+
+	// Tier 4 - ShowBox (FilmU)
+	if r.tier4 != nil {
+		res, err := r.tier4.ResolveMovie(ctx, tmdbID)
+		if err != nil {
+			log.Printf("[resolver] tier4 error for movie %d: %v", tmdbID, err)
+		} else if res != nil && res.Success {
+			log.Printf("[resolver] resolved movie %d via Tier 4", tmdbID)
 			return res, nil
 		}
 	}
@@ -74,11 +91,11 @@ func (r *CentralResolver) ResolveMovie(ctx context.Context, tmdbID int) (*models
 	}, nil
 }
 
-// ResolveTV resolves a TV show TMDB ID, season, and episode across Tier 1 -> Tier 2 -> Tier 3 in strict order.
+// ResolveTV resolves a TV show TMDB ID, season, and episode across Tier 1 -> Tier 2 -> Tier 3 -> Tier 4 in strict order.
 func (r *CentralResolver) ResolveTV(ctx context.Context, tmdbID, season, episode int) (*models.ResolutionResult, error) {
 	log.Printf("[resolver] TV %d S%dE%d", tmdbID, season, episode)
 
-	// Tier 1 - Vidara
+	// Tier 1 - Vidara & StreamHG
 	if r.tier1 != nil {
 		res, err := r.tier1.ResolveTV(ctx, tmdbID, season, episode)
 		if err != nil {
@@ -89,7 +106,7 @@ func (r *CentralResolver) ResolveTV(ctx context.Context, tmdbID, season, episode
 		}
 	}
 
-	// Tier 2 - Extractor
+	// Tier 2 - Extractor (VidFast)
 	if r.tier2 != nil {
 		res, err := r.tier2.ResolveTV(ctx, tmdbID, season, episode)
 		if err != nil {
@@ -100,13 +117,24 @@ func (r *CentralResolver) ResolveTV(ctx context.Context, tmdbID, season, episode
 		}
 	}
 
-	// Tier 3
+	// Tier 3 - Vidrift (Evion -> Atlas -> Vela)
 	if r.tier3 != nil {
 		res, err := r.tier3.ResolveTV(ctx, tmdbID, season, episode)
 		if err != nil {
 			log.Printf("[resolver] tier3 error for TV %d S%dE%d: %v", tmdbID, season, episode, err)
 		} else if res != nil && res.Success {
 			log.Printf("[resolver] resolved TV %d S%dE%d via Tier 3", tmdbID, season, episode)
+			return res, nil
+		}
+	}
+
+	// Tier 4 - ShowBox (FilmU)
+	if r.tier4 != nil {
+		res, err := r.tier4.ResolveTV(ctx, tmdbID, season, episode)
+		if err != nil {
+			log.Printf("[resolver] tier4 error for TV %d S%dE%d: %v", tmdbID, season, episode, err)
+		} else if res != nil && res.Success {
+			log.Printf("[resolver] resolved TV %d S%dE%d via Tier 4", tmdbID, season, episode)
 			return res, nil
 		}
 	}

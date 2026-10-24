@@ -13,25 +13,32 @@ import (
 func main() {
 	cfg := LoadConfig()
 
-	log.Printf("[*] Initializing 3-Tier Multi-Source Streaming API...")
+	log.Printf("[*] Initializing 4-Tier Multi-Source Streaming API...")
 
-	// 1. Tier 1 - Vidara
+	// 1. Tier 1 - Vidara & StreamHG
 	tier1 := tiers.NewVidaraTier(cfg.VidaraURL, cfg.StreamTapeURL, cfg.RequestTimeout)
+	tier1.SetStreamHGBase(cfg.StreamHGProxyURL)
 	if err := tier1.LoadData(cfg.VidaraRemoteURL, cfg.DataFilePath, "data/vidara.json", "data.json"); err != nil {
 		log.Printf("[!] Warning loading Vidara data: %v", err)
 	}
 
 	// 2. Tier 2 - Extractor API
 	tier2 := tiers.NewExtractorTier(cfg.AppURLWorker, cfg.VidFastBaseURL, cfg.RequestTimeout)
+	if cfg.VidFastTimeoutSeconds > 0 {
+		tier2.SetTimeoutSeconds(cfg.VidFastTimeoutSeconds)
+	}
 
-	// 3. Tier 3 - ShowBox (FilmU)
-	tier3 := tiers.NewTier3(cfg.ShowBoxBaseURL, cfg.ShowBoxAPIKey, cfg.FebboxToken, cfg.TMDBKey, cfg.RequestTimeout)
+	// 3. Tier 3 - Vidrift (Evion -> Atlas -> Vela)
+	tier3 := tiers.NewVidriftTier(cfg.VidriftBaseURL, cfg.TMDBKey, cfg.RequestTimeout)
 
-	// Central Fallback Resolver
-	centralResolver := resolver.NewCentralResolver(tier1, tier2, tier3)
+	// 4. Tier 4 - ShowBox (FilmU)
+	tier4 := tiers.NewTier4(cfg.ShowBoxBaseURL, cfg.ShowBoxAPIKey, cfg.FebboxToken, cfg.TMDBKey, cfg.RequestTimeout)
+
+	// Central Fallback Resolver (Tier 1 -> Tier 2 -> Tier 3 -> Tier 4)
+	centralResolver := resolver.NewCentralResolver(tier1, tier2, tier3, tier4)
 
 	// API Handlers
-	apiHandler := handlers.NewAPIHandler(centralResolver, tier1, tier3, cfg.RequestTimeout)
+	apiHandler := handlers.NewAPIHandler(centralResolver, tier1, tier4, cfg.RequestTimeout)
 
 	mux := http.NewServeMux()
 
