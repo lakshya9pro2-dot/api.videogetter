@@ -80,7 +80,7 @@ Tier 1: Vidara & StreamHG
 - **What Works:**
   - **In-Memory Store:** Loads remote JSON dataset (`https://www.jsonkeeper.com/b/FWSAK`) and local fallback files into concurrent-safe in-memory maps (`movieIndex` and `tvIndex`). Lookup is $O(1)$ and takes **< 1 millisecond**.
   - **Dual Upstream Handlers:** Supports both Vidara (`va`) and Streamtape (`st`) video IDs with automatic token evaluation.
-  - **StreamHG Integration (`sh`):** Resolves StreamHG proxy URLs (`https://rozgarlelo.modiplay.xyz/proxy.php?p=streamhg&c={id}&noredirect=1`), parses `var src="..."` stream URLs from HTML, and handles proxying with custom headers (`Referer: https://streamhg.com/`).
+  - **StreamHG Integration (`sh`):** Resolves StreamHG / Hanerix directly (`https://hanerix.com/e/{id}`), unpacks Dean Edwards `p,a,c,k,e,d` JavaScript shells, extracts `links.hls4` / `hls3` / `hls2` master HLS streams with multi-audio, and handles playback headers (`Referer: https://hanerix.com/e/{id}`).
 - **Why It's Built This Way:**
   - Provides instantaneous responses for high-demand, pre-curated content without hitting external scrapers or consuming remote rate limits.
 
@@ -280,7 +280,7 @@ Every stream returns the headers required by upstream CDNs to prevent HTTP 403 F
 | Tier | Source | `Referer` | `Origin` |
 |---|---|---|---|
 | **Tier 1** | Vidara | `https://vidara.to/` | `https://vidara.to` |
-| **Tier 1** | StreamHG | `https://streamhg.com/` | `https://streamhg.com` |
+| **Tier 1** | StreamHG | `https://hanerix.com/` | `https://hanerix.com` |
 | **Tier 2** | VidFast Extractor | `https://vidfast.vc/` | `https://vidfast.vc` |
 | **Tier 3** | Vidrift | `https://embed.vidrift.in/` | `https://embed.vidrift.in` |
 | **Tier 4** | ShowBox / Febbox | `https://www.febbox.com/` | `https://www.febbox.com` |

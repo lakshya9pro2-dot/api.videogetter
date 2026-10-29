@@ -91,9 +91,11 @@ type ResolutionResult struct {
 	Episode *int              `json:"episode,omitempty"`
 	URL     string            `json:"url,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
-	Expiry  *int64            `json:"expiry,omitempty"`
-	Play    *Playback         `json:"play,omitempty"`
-	Error   string            `json:"error,omitempty"`
+	Expiry     *int64            `json:"expiry,omitempty"`
+	Play       *Playback         `json:"play,omitempty"`
+	Direct     bool              `json:"direct,omitempty"`
+	StreamType string            `json:"stream_type,omitempty"`
+	Error      string            `json:"error,omitempty"`
 }
 
 // AudioTrack represents dynamic audio track extracted from HLS / M3U.

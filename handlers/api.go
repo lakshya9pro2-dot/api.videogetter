@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"vidara-api/models"
+	"vidara-api/proxy"
 	"vidara-api/resolver"
 	"vidara-api/tiers"
 )
@@ -22,10 +24,12 @@ const (
 
 // APIHandler handles HTTP requests for the multi-tier streaming API.
 type APIHandler struct {
-	resolver   *resolver.CentralResolver
-	vidaraTier *tiers.VidaraTier
-	tier3      *tiers.Tier3
-	httpClient *http.Client
+	resolver            *resolver.CentralResolver
+	vidaraTier          *tiers.VidaraTier
+	tier3               *tiers.Tier3
+	workerClient        *proxy.WorkerClient
+	proxyFallbackDirect bool
+	httpClient          *http.Client
 }
 
 // NewAPIHandler creates a new APIHandler instance.
@@ -36,6 +40,59 @@ func NewAPIHandler(res *resolver.CentralResolver, vidaraTier *tiers.VidaraTier, 
 		tier3:      tier3,
 		httpClient: &http.Client{Timeout: timeout},
 	}
+}
+
+// SetWorkerClient configures the Cloudflare Worker proxy client and fallback policy.
+func (h *APIHandler) SetWorkerClient(client *proxy.WorkerClient, fallbackDirect bool) {
+	h.workerClient = client
+	h.proxyFallbackDirect = fallbackDirect
+}
+
+// proxyResolvedResult requests a playback session from the configured Cloudflare Workers.
+// If successful, it replaces result.URL with the Worker playback URL and removes upstream Origin/Referer.
+func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.ResolutionResult, videoID string, mediaType string) error {
+	if h.workerClient == nil || !h.workerClient.HasWorkers() || result == nil || !result.Success || strings.TrimSpace(result.URL) == "" {
+		return nil
+	}
+
+	// Direct MP4 streams do not require HLS proxying, playlist rewriting, or header forwarding
+	if result.Direct || result.StreamType == "mp4" || strings.Contains(strings.ToLower(result.URL), ".mp4") {
+		return nil
+	}
+
+	upstreamURL := result.URL
+	upstreamHeaders := result.Headers
+
+	sessResp, err := h.workerClient.CreateSession(ctx, proxy.SessionRequest{
+		URL:     upstreamURL,
+		Headers: upstreamHeaders,
+		VideoID: videoID,
+		Type:    mediaType,
+	})
+	if err != nil {
+		if h.proxyFallbackDirect {
+			log.Printf("[handlers] proxy workers failed for %s (%s), falling back to direct URL: %v", videoID, upstreamURL, err)
+			return nil
+		}
+		return fmt.Errorf("failed to register playback proxy session: %w", err)
+	}
+
+	// Update result with clean worker URL
+	result.URL = sessResp.PlaybackURL
+
+	// Clear upstream Origin and Referer requirements so client does not need them
+	if result.Headers != nil {
+		delete(result.Headers, "Origin")
+		delete(result.Headers, "Referer")
+		delete(result.Headers, "origin")
+		delete(result.Headers, "referer")
+	}
+
+	if result.Play != nil {
+		result.Play.URL = sessResp.PlaybackURL
+	}
+
+	return nil
 }
 
 // AddCORSHeaders sets CORS headers, preserving any Origin already set by middleware.
@@ -122,6 +179,7 @@ func (h *APIHandler) HandleMovie(w http.ResponseWriter, r *http.Request) {
 		// Fallback: resolve movie via standard tiers and format into Extended M3U
 		result, err := h.resolver.ResolveMovie(ctx, tmdbID)
 		if err == nil && result != nil && result.Success && result.URL != "" {
+			_ = h.proxyResolvedResult(ctx, result, strconv.Itoa(tmdbID), "movie")
 			title := result.Title
 			if title == "" {
 				title = fmt.Sprintf("Movie %d", tmdbID)
@@ -162,6 +220,17 @@ func (h *APIHandler) HandleMovie(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		_ = json.NewEncoder(w).Encode(result)
+		return
+	}
+
+	if pErr := h.proxyResolvedResult(ctx, result, strconv.Itoa(tmdbID), "movie"); pErr != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"tmdb_id": tmdbID,
+			"error":   "proxy_workers_failed",
+			"message": pErr.Error(),
+		})
 		return
 	}
 
@@ -245,6 +314,7 @@ func (h *APIHandler) HandleTV(w http.ResponseWriter, r *http.Request) {
 		// Fallback: resolve TV via standard tiers and format into Extended M3U
 		result, err := h.resolver.ResolveTV(ctx, tmdbID, season, episode)
 		if err == nil && result != nil && result.Success && result.URL != "" {
+			_ = h.proxyResolvedResult(ctx, result, fmt.Sprintf("%d_S%dE%d", tmdbID, season, episode), "tv")
 			title := result.Title
 			if title == "" {
 				title = fmt.Sprintf("TV %d", tmdbID)
@@ -290,6 +360,19 @@ func (h *APIHandler) HandleTV(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		_ = json.NewEncoder(w).Encode(result)
+		return
+	}
+
+	if pErr := h.proxyResolvedResult(ctx, result, fmt.Sprintf("%d_S%dE%d", tmdbID, season, episode), "tv"); pErr != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"tmdb_id": tmdbID,
+			"season":  season,
+			"episode": episode,
+			"error":   "proxy_workers_failed",
+			"message": pErr.Error(),
+		})
 		return
 	}
 

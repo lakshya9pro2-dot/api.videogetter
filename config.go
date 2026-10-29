@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -19,6 +20,12 @@ const DefaultRedirectURL = "https://api.kineflex.site/"
 
 // DefaultBackendAPIKey is the required secret key sent by api.kineflex.site.
 const DefaultBackendAPIKey = "lakshya9310081539@"
+
+// DefaultProxyWorkerURL is the primary Cloudflare Worker endpoint for HLS playback proxying.
+const DefaultProxyWorkerURL = "https://turbo-octo-succotash.kineflex-netflex.workers.dev"
+
+// DefaultCineTVBaseURL is the default base URL for the CineTV (Netlify) resolver in Tier 3.
+const DefaultCineTVBaseURL = "https://cinetvtest.netlify.app"
 // ============================================================================
 
 // Config holds runtime configuration settings.
@@ -33,8 +40,9 @@ type Config struct {
 	VidFastBaseURL  string
 	VidaraURL       string
 	StreamTapeURL   string
-	StreamHGProxyURL string
+	StreamHGBaseURL string
 	VidriftBaseURL  string // Base URL for Vidrift embed host (Tier 3)
+	CineTVBaseURL   string // Base URL for CineTV (Netlify) resolver (Tier 3)
 	Tier3BaseURL    string
 	Tier4BaseURL    string // Base URL for ShowBox/FilmU (Tier 4)
 	ShowBoxBaseURL  string
@@ -44,6 +52,10 @@ type Config struct {
 	DataFilePath    string
 	RequestTimeout  time.Duration
 	VidFastTimeoutSeconds int
+	ProxyWorkerURLs       []string      // Configured Cloudflare Worker endpoints for HLS playback proxying
+	ProxyWorkerSecret     string        // Shared secret sent to Cloudflare Workers (X-Worker-Key)
+	ProxyWorkerTimeout    time.Duration // Timeout per worker attempt
+	ProxyFallbackDirect   bool          // Fallback to direct stream URL if all workers fail
 }
 
 // LoadConfig initializes Config from environment variables or sensible defaults.
@@ -78,14 +90,22 @@ func LoadConfig() *Config {
 		streamTapeURL = "https://streamtape.com"
 	}
 
-	streamHGProxyURL := os.Getenv("STREAMHG_PROXY_URL")
-	if streamHGProxyURL == "" {
-		streamHGProxyURL = "https://rozgarlelo.modiplay.xyz"
+	streamHGBaseURL := os.Getenv("STREAMHG_BASE_URL")
+	if streamHGBaseURL == "" {
+		streamHGBaseURL = os.Getenv("STREAMHG_URL")
+	}
+	if streamHGBaseURL == "" {
+		streamHGBaseURL = "https://hanerix.com"
 	}
 
 	vidriftBaseURL := os.Getenv("VIDRIFT_BASE_URL")
 	if vidriftBaseURL == "" {
 		vidriftBaseURL = "https://embed.vidrift.in"
+	}
+
+	cinetvBaseURL := os.Getenv("CINETV_BASE_URL")
+	if cinetvBaseURL == "" {
+		cinetvBaseURL = DefaultCineTVBaseURL
 	}
 
 	tier3BaseURL := vidriftBaseURL
@@ -163,6 +183,42 @@ func LoadConfig() *Config {
 		apiKey = DefaultBackendAPIKey
 	}
 
+	var proxyWorkerURLs []string
+	if envWorkerURLs := os.Getenv("PROXY_WORKER_URLS"); envWorkerURLs != "" {
+		for _, u := range strings.Split(envWorkerURLs, ",") {
+			if trimmed := strings.TrimSpace(u); trimmed != "" {
+				proxyWorkerURLs = append(proxyWorkerURLs, strings.TrimRight(trimmed, "/"))
+			}
+		}
+	}
+	if len(proxyWorkerURLs) == 0 {
+		for _, envKey := range []string{"PROXY_WORKER_URL_1", "PROXY_WORKER_URL_2", "PROXY_WORKER_URL_3"} {
+			if u := strings.TrimSpace(os.Getenv(envKey)); u != "" {
+				proxyWorkerURLs = append(proxyWorkerURLs, strings.TrimRight(u, "/"))
+			}
+		}
+	}
+	if len(proxyWorkerURLs) == 0 {
+		proxyWorkerURLs = []string{DefaultProxyWorkerURL}
+	}
+
+	proxyWorkerSecret := os.Getenv("PROXY_WORKER_SECRET")
+	if proxyWorkerSecret == "" {
+		proxyWorkerSecret = os.Getenv("WORKER_SECRET")
+	}
+
+	proxyWorkerTimeoutSec := 10
+	if secStr := os.Getenv("PROXY_WORKER_TIMEOUT_SECONDS"); secStr != "" {
+		if s, err := strconv.Atoi(secStr); err == nil && s > 0 {
+			proxyWorkerTimeoutSec = s
+		}
+	}
+
+	proxyFallbackDirect := false
+	if fbStr := os.Getenv("PROXY_FALLBACK_DIRECT"); fbStr != "" {
+		proxyFallbackDirect = strings.EqualFold(fbStr, "true") || fbStr == "1"
+	}
+
 	return &Config{
 		Port:            port,
 		VidaraRemoteURL: vidaraRemoteURL,
@@ -174,8 +230,9 @@ func LoadConfig() *Config {
 		VidFastBaseURL:  vidfastBaseURL,
 		VidaraURL:       vidaraURL,
 		StreamTapeURL:   streamTapeURL,
-		StreamHGProxyURL: streamHGProxyURL,
+		StreamHGBaseURL: streamHGBaseURL,
 		VidriftBaseURL:  vidriftBaseURL,
+		CineTVBaseURL:   cinetvBaseURL,
 		Tier3BaseURL:    tier3BaseURL,
 		Tier4BaseURL:    tier4BaseURL,
 		ShowBoxBaseURL:  showBoxBaseURL,
@@ -185,5 +242,9 @@ func LoadConfig() *Config {
 		DataFilePath:    dataFilePath,
 		RequestTimeout:  time.Duration(timeoutSec) * time.Second,
 		VidFastTimeoutSeconds: vidfastTimeoutSec,
+		ProxyWorkerURLs:       proxyWorkerURLs,
+		ProxyWorkerSecret:     proxyWorkerSecret,
+		ProxyWorkerTimeout:    time.Duration(proxyWorkerTimeoutSec) * time.Second,
+		ProxyFallbackDirect:   proxyFallbackDirect,
 	}
 }

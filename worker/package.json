@@ -1,0 +1,21 @@
+{
+  "name": "hls-playback-proxy-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker HLS Playback Proxy with Session Management and Playlist Rewriting",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/worker.test.js",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "keywords": [
+    "cloudflare-worker",
+    "hls",
+    "m3u8",
+    "proxy",
+    "streaming"
+  ],
+  "author": "",
+  "license": "ISC"
+}

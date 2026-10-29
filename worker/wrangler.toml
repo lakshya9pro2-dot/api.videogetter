@@ -1,0 +1,20 @@
+name = "hls-playback-proxy-worker"
+main = "src/index.js"
+compatibility_date = "2024-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "production"
+# Secret key required from Go backend in X-Worker-Key or Authorization header (leave empty to allow open backend access)
+WORKER_SECRET = ""
+# Session TTL in seconds (default: 14400 = 4 hours)
+SESSION_TTL_SECONDS = "14400"
+# Maximum allowed playlist size in bytes (default: 5242880 = 5MB)
+MAX_PLAYLIST_BYTES = "5242880"
+# Comma-separated list of allowed upstream domains (leave empty to allow all valid HTTPS domains with SSRF protection)
+ALLOWED_UPSTREAM_DOMAINS = ""
+
+# Optional KV namespace for distributed session caching across all edge colos
+# [[kv_namespaces]]
+# binding = "SESSIONS_KV"
+# id = "your_kv_namespace_id"

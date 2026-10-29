@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"vidara-api/handlers"
+	"vidara-api/proxy"
 	"vidara-api/resolver"
 	"vidara-api/tiers"
 )
@@ -17,7 +18,7 @@ func main() {
 
 	// 1. Tier 1 - Vidara & StreamHG
 	tier1 := tiers.NewVidaraTier(cfg.VidaraURL, cfg.StreamTapeURL, cfg.RequestTimeout)
-	tier1.SetStreamHGBase(cfg.StreamHGProxyURL)
+	tier1.SetStreamHGBase(cfg.StreamHGBaseURL)
 	if err := tier1.LoadData(cfg.VidaraRemoteURL, cfg.DataFilePath, "data/vidara.json", "data.json"); err != nil {
 		log.Printf("[!] Warning loading Vidara data: %v", err)
 	}
@@ -28,8 +29,12 @@ func main() {
 		tier2.SetTimeoutSeconds(cfg.VidFastTimeoutSeconds)
 	}
 
-	// 3. Tier 3 - Vidrift (Evion -> Atlas -> Vela)
+	// 3. Tier 3 - CineTV & Vidrift
 	tier3 := tiers.NewVidriftTier(cfg.VidriftBaseURL, cfg.TMDBKey, cfg.RequestTimeout)
+	if cfg.CineTVBaseURL != "" {
+		tier3.SetCineTVBaseURL(cfg.CineTVBaseURL)
+		log.Printf("[*] Tier 3 CineTV enabled with base URL: %s", cfg.CineTVBaseURL)
+	}
 
 	// 4. Tier 4 - ShowBox (FilmU)
 	tier4 := tiers.NewTier4(cfg.ShowBoxBaseURL, cfg.ShowBoxAPIKey, cfg.FebboxToken, cfg.TMDBKey, cfg.RequestTimeout)
@@ -39,6 +44,16 @@ func main() {
 
 	// API Handlers
 	apiHandler := handlers.NewAPIHandler(centralResolver, tier1, tier4, cfg.RequestTimeout)
+
+	// Cloudflare Worker Playback Proxy Client (Part B)
+	if len(cfg.ProxyWorkerURLs) > 0 {
+		workerClient := proxy.NewWorkerClient(cfg.ProxyWorkerURLs, cfg.ProxyWorkerSecret, cfg.ProxyWorkerTimeout)
+		apiHandler.SetWorkerClient(workerClient, cfg.ProxyFallbackDirect)
+		log.Printf("[*] Cloudflare Worker HLS Proxy enabled with %d worker(s): %v (fallback_direct: %v)",
+			len(cfg.ProxyWorkerURLs), cfg.ProxyWorkerURLs, cfg.ProxyFallbackDirect)
+	} else {
+		log.Printf("[*] Cloudflare Worker HLS Proxy inactive (no PROXY_WORKER_URLS configured)")
+	}
 
 	mux := http.NewServeMux()
 
