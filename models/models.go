@@ -5,13 +5,16 @@ import (
 	"strings"
 )
 
-// Playback holds playback identifiers for Vidara, Streamtape, StreamHG, or a direct stream URL.
+// Playback holds playback identifiers for Vidara, Streamtape, StreamHG, HDHub/HubCloud, or a direct stream URL.
 type Playback struct {
-	VA   string `json:"va,omitempty"`
-	ST   string `json:"st,omitempty"`
-	SH   string `json:"sh,omitempty"`
-	URL  string `json:"url,omitempty"`
-	Play string `json:"play,omitempty"`
+	VA       string `json:"va,omitempty"`
+	ST       string `json:"st,omitempty"`
+	SH       string `json:"sh,omitempty"`
+	HDHub    string `json:"hdhub,omitempty"`
+	HubCloud string `json:"hubcloud,omitempty"`
+	HubHD    string `json:"hubhd,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Play     string `json:"play,omitempty"`
 }
 
 // UnmarshalJSON handles both object and string representations of playback.
@@ -41,6 +44,15 @@ func (p *Playback) UnmarshalJSON(b []byte) error {
 	p.VA = aux.VA
 	p.ST = aux.ST
 	p.SH = aux.SH
+	p.HDHub = aux.HDHub
+	p.HubCloud = aux.HubCloud
+	p.HubHD = aux.HubHD
+	if p.HDHub == "" && aux.HubHD != "" {
+		p.HDHub = aux.HubHD
+	}
+	if p.HDHub == "" && aux.HubCloud != "" {
+		p.HDHub = aux.HubCloud
+	}
 	p.URL = aux.URL
 	p.Play = aux.Play
 
@@ -75,6 +87,9 @@ type MediaItem struct {
 	VA       string        `json:"va,omitempty"`
 	ST       string        `json:"st,omitempty"`
 	SH       string        `json:"sh,omitempty"`
+	HDHub    string        `json:"hdhub,omitempty"`
+	HubCloud string        `json:"hubcloud,omitempty"`
+	HubHD    string        `json:"hubhd,omitempty"`
 	URL      string        `json:"url,omitempty"`
 }
 

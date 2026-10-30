@@ -48,8 +48,9 @@ func main() {
 	// Cloudflare Worker Playback Proxy Client (Part B)
 	if len(cfg.ProxyWorkerURLs) > 0 {
 		workerClient := proxy.NewWorkerClient(cfg.ProxyWorkerURLs, cfg.ProxyWorkerSecret, cfg.ProxyWorkerTimeout)
+		tier1.SetWorkerClient(workerClient)
 		apiHandler.SetWorkerClient(workerClient, cfg.ProxyFallbackDirect)
-		log.Printf("[*] Cloudflare Worker HLS Proxy enabled with %d worker(s): %v (fallback_direct: %v)",
+		log.Printf("[*] Cloudflare Worker HLS Proxy & In-Worker Extractor enabled with %d worker(s): %v (fallback_direct: %v)",
 			len(cfg.ProxyWorkerURLs), cfg.ProxyWorkerURLs, cfg.ProxyFallbackDirect)
 	} else {
 		log.Printf("[*] Cloudflare Worker HLS Proxy inactive (no PROXY_WORKER_URLS configured)")

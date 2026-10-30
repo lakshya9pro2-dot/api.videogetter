@@ -21,6 +21,15 @@ type SessionRequest struct {
 	Type    string            `json:"type,omitempty"`
 }
 
+// ExtractSessionRequest is the payload sent to Cloudflare Workers to extract a stream on the worker
+// and create a playback session, ensuring that extraction and proxying share the worker's egress IP.
+type ExtractSessionRequest struct {
+	Provider string `json:"provider"` // "streamhg", "streamtape", "sh", "st"
+	ID       string `json:"id"`
+	VideoID  string `json:"videoId,omitempty"`
+	Type     string `json:"type,omitempty"`
+}
+
 // SessionResponse is the response payload returned by Cloudflare Workers.
 type SessionResponse struct {
 	Success     bool   `json:"success"`
@@ -214,4 +223,139 @@ func (c *WorkerClient) CreateSession(ctx context.Context, req SessionRequest) (*
 	}
 
 	return nil, fmt.Errorf("all configured proxy workers failed: %s", strings.Join(failures, "; "))
+}
+
+// ExtractSession requests a configured Cloudflare Worker to extract the stream directly and return a proxied playback session.
+// This guarantees that both the stream extraction and media segment proxying share the Worker's edge network,
+// resolving IP-bound tokens (Same-IP check).
+func (c *WorkerClient) ExtractSession(ctx context.Context, req ExtractSessionRequest) (*SessionResponse, error) {
+	if !c.HasWorkers() {
+		return nil, fmt.Errorf("no proxy workers configured")
+	}
+
+	cleanProvider := strings.TrimSpace(strings.ToLower(req.Provider))
+	cleanID := strings.TrimSpace(req.ID)
+	if cleanProvider == "" || cleanID == "" {
+		return nil, fmt.Errorf("provider and id cannot be empty")
+	}
+
+	reqBodyBytes, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize extract session request: %w", err)
+	}
+
+	var failures []string
+
+	for idx, workerBase := range c.workerURLs {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		attemptCtx, cancel := context.WithTimeout(ctx, c.timeout)
+
+		endpoint := workerBase + "/extract"
+		httpReq, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, endpoint, bytes.NewReader(reqBodyBytes))
+		if err != nil {
+			cancel()
+			failures = append(failures, fmt.Sprintf("worker-%d (%s): init request failed: %v", idx+1, workerBase, err))
+			continue
+		}
+
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Accept", "application/json")
+		httpReq.Header.Set("User-Agent", "Vidara-Backend-WorkerClient/1.0")
+
+		if c.secret != "" {
+			httpReq.Header.Set("X-Worker-Key", c.secret)
+		}
+
+		resp, err := c.httpClient.Do(httpReq)
+		if err != nil {
+			cancel()
+			log.Printf("[worker-proxy] extract worker-%d (%s) attempt failed: %v", idx+1, workerBase, err)
+			failures = append(failures, fmt.Sprintf("worker-%d (%s): connection error: %v", idx+1, workerBase, err))
+			continue
+		}
+
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+		_ = resp.Body.Close()
+		cancel()
+
+		if readErr != nil {
+			log.Printf("[worker-proxy] extract worker-%d (%s) failed reading response: %v", idx+1, workerBase, readErr)
+			failures = append(failures, fmt.Sprintf("worker-%d (%s): read error: %v", idx+1, workerBase, readErr))
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+			log.Printf("[worker-proxy] extract worker-%d (%s) returned HTTP %d: %s", idx+1, workerBase, resp.StatusCode, string(bodyBytes))
+			failures = append(failures, fmt.Sprintf("worker-%d (%s): HTTP %d", idx+1, workerBase, resp.StatusCode))
+			continue
+		}
+
+		var sessResp SessionResponse
+		if err := json.Unmarshal(bodyBytes, &sessResp); err != nil {
+			log.Printf("[worker-proxy] extract worker-%d (%s) returned invalid JSON: %v", idx+1, workerBase, err)
+			failures = append(failures, fmt.Sprintf("worker-%d (%s): invalid json: %v", idx+1, workerBase, err))
+			continue
+		}
+
+		if !sessResp.Success {
+			errMsg := sessResp.Message
+			if errMsg == "" {
+				errMsg = sessResp.Error
+			}
+			log.Printf("[worker-proxy] extract worker-%d (%s) returned unsuccessful status: %s", idx+1, workerBase, errMsg)
+			failures = append(failures, fmt.Sprintf("worker-%d (%s): worker error: %s", idx+1, workerBase, errMsg))
+			continue
+		}
+
+		playbackURL := strings.TrimSpace(sessResp.PlaybackURL)
+		if playbackURL == "" {
+			playbackURL = strings.TrimSpace(sessResp.URL)
+		}
+
+		if playbackURL == "" {
+			log.Printf("[worker-proxy] extract worker-%d (%s) returned empty playback URL", idx+1, workerBase)
+			failures = append(failures, fmt.Sprintf("worker-%d (%s): empty playback URL", idx+1, workerBase))
+			continue
+		}
+
+		// Security: Validate playback URL protocol and host
+		parsedPlayback, err := url.Parse(playbackURL)
+		if err != nil {
+			log.Printf("[worker-proxy] extract worker-%d (%s) returned unparseable playback URL: %v", idx+1, workerBase, err)
+			failures = append(failures, fmt.Sprintf("worker-%d (%s): unparseable playback URL: %v", idx+1, workerBase, err))
+			continue
+		}
+
+		parsedWorker, err := url.Parse(workerBase)
+		if err != nil {
+			parsedWorker = &url.URL{}
+		}
+
+		isLocal := parsedPlayback.Hostname() == "127.0.0.1" || parsedPlayback.Hostname() == "localhost"
+		if parsedPlayback.Scheme != "https" && !isLocal {
+			log.Printf("[worker-proxy] extract worker-%d (%s) returned non-HTTPS URL: %s", idx+1, workerBase, playbackURL)
+			failures = append(failures, fmt.Sprintf("worker-%d (%s): non-https playback URL", idx+1, workerBase))
+			continue
+		}
+
+		if !strings.EqualFold(parsedPlayback.Hostname(), parsedWorker.Hostname()) {
+			log.Printf("[worker-proxy] extract worker-%d (%s) returned mismatched hostname: %s vs %s",
+				idx+1, workerBase, parsedPlayback.Hostname(), parsedWorker.Hostname())
+			failures = append(failures, fmt.Sprintf("worker-%d (%s): mismatched hostname in playback URL", idx+1, workerBase))
+			continue
+		}
+
+		log.Printf("[worker-proxy] successfully extracted and created session via worker-%d (%s) for %s:%s",
+			idx+1, workerBase, cleanProvider, cleanID)
+		sessResp.PlaybackURL = playbackURL
+		sessResp.URL = playbackURL
+		return &sessResp, nil
+	}
+
+	return nil, fmt.Errorf("all configured proxy workers failed extract: %s", strings.Join(failures, "; "))
 }

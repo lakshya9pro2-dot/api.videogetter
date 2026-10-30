@@ -55,6 +55,13 @@ func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.Res
 		return nil
 	}
 
+	// Skip if URL is already a proxied Cloudflare Worker URL (e.g. from in-worker extraction of StreamHG or Streamtape)
+	for _, wURL := range h.workerClient.GetWorkerURLs() {
+		if strings.HasPrefix(result.URL, wURL) {
+			return nil
+		}
+	}
+
 	// Direct MP4 streams do not require HLS proxying, playlist rewriting, or header forwarding
 	if result.Direct || result.StreamType == "mp4" || strings.Contains(strings.ToLower(result.URL), ".mp4") {
 		return nil

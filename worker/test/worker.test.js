@@ -430,3 +430,24 @@ test("E2E Pipeline: Server-side Origin and Referer applied to upstream", async (
   assert.strictEqual(upstreamReceived.referer, "https://custom-referer.example.com/stream");
 });
 
+test("Extractors: Unpack packed JavaScript de-obfuscation", async () => {
+  const { unpackPackedJS } = await import("../src/extractors.js");
+  const packedSample = `eval(function(p,a,c,k,e,d){while(c--)if(k[c])p=p.replace(new RegExp('\\\\b'+c.toString(a)+'\\\\b','g'),k[c]);return p}('1 0="3";',4,4,'src|var||https://cdn.example.com/master.m3u8'.split('|')))`;
+  const unpacked = unpackPackedJS(packedSample);
+  assert.match(unpacked, /var\s+src="https:\/\/cdn\.example\.com\/master\.m3u8"/);
+});
+
+test("Worker POST: /extract endpoint validates missing parameters", async () => {
+  const env = { ALLOW_INSECURE_TEST_UPSTREAM: "true" };
+  const req = new Request("https://worker.dev/extract", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: "unknown", id: "123" })
+  });
+  const res = await worker.fetch(req, env);
+  assert.strictEqual(res.status, 400);
+  const data = await res.json();
+  assert.strictEqual(data.error, "unsupported_provider");
+});
+
+

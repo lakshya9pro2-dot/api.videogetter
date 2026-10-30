@@ -248,3 +248,42 @@ func TestWorkerClient_TimeoutHandling(t *testing.T) {
 		t.Errorf("expected failover exhaustion error, got: %v", err)
 	}
 }
+
+func TestWorkerClient_ExtractSession_Success(t *testing.T) {
+	s1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/extract" {
+			t.Errorf("expected /extract path, got %s", r.URL.Path)
+		}
+		var req ExtractSessionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed decoding request: %v", err)
+		}
+		if req.Provider != "streamhg" || req.ID != "testcode123" {
+			t.Errorf("unexpected payload: %+v", req)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(SessionResponse{
+			Success:     true,
+			SessionID:   "sess-extract-1",
+			PlaybackURL: "http://" + r.Host + "/session/sess-extract-1/master.m3u8",
+		})
+	}))
+	defer s1.Close()
+
+	client := NewWorkerClient([]string{s1.URL}, "", 2*time.Second)
+	res, err := client.ExtractSession(context.Background(), ExtractSessionRequest{
+		Provider: "streamhg",
+		ID:       "testcode123",
+		VideoID:  "550",
+		Type:     "movie",
+	})
+	if err != nil {
+		t.Fatalf("ExtractSession failed: %v", err)
+	}
+	if res.SessionID != "sess-extract-1" {
+		t.Errorf("expected sess-extract-1, got %s", res.SessionID)
+	}
+	if !strings.Contains(res.PlaybackURL, "/session/sess-extract-1/master.m3u8") {
+		t.Errorf("unexpected playback url: %s", res.PlaybackURL)
+	}
+}
