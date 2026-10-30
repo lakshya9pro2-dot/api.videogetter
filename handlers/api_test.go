@@ -598,3 +598,63 @@ func TestAPI_DirectMP4_BypassesWorkerProxy(t *testing.T) {
 		t.Errorf("expected source 'cinetv', got: %v", data["source"])
 	}
 }
+
+func TestAPI_HubCloud_BypassesWorkerProxy(t *testing.T) {
+	workerCalled := false
+	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		workerCalled = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"playback_url":"https://worker.dev/session/123/master.m3u8"}`))
+	}))
+	defer workerServer.Close()
+
+	r2RealURL := "https://701ab416771ea1b49a24683d35a33206.r2.cloudflarestorage.com/hub/Movie.2026.1080p.mkv?X-Amz-Signature=abc"
+	t1 := &mockTier{
+		movieFn: func(ctx context.Context, id int) (*models.ResolutionResult, error) {
+			return &models.ResolutionResult{
+				Success:    true,
+				TmdbID:     id,
+				Tier:       1,
+				Source:     "HubCloud [FSLv2 Server]",
+				Title:      "Movie 2026",
+				URL:        r2RealURL,
+				Direct:     true,
+				StreamType: "mkv",
+			}, nil
+		},
+	}
+
+	r := resolver.NewCentralResolver(t1, nil, nil)
+	h := NewAPIHandler(r, nil, nil, 2*time.Second)
+	wc := proxy.NewWorkerClient([]string{workerServer.URL}, "", 2*time.Second)
+	h.SetWorkerClient(wc, false)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/movie/", h.HandleMovie)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/api/movie/999123")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
+	}
+
+	if workerCalled {
+		t.Errorf("Cloudflare worker proxy should NOT be called for HubCloud streams!")
+	}
+
+	var data map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&data)
+	if data["url"] != r2RealURL {
+		t.Errorf("expected real direct HubCloud URL, got: %v", data["url"])
+	}
+	if data["direct"] != true {
+		t.Errorf("expected direct=true for HubCloud")
+	}
+}
+

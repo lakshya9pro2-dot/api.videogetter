@@ -158,26 +158,29 @@ export async function extractStreamHG(urlOrId) {
 }
 
 /**
- * Extracts streaming URL from Streamtape directly inside Cloudflare Worker.
+ * Extracts streaming URL from Streamtape directly inside Cloudflare Worker matching CloudStream 3.
  *
  * @param {string} urlOrId
  * @returns {Promise<{ streamUrl: string, streamType: string, title: string, headers: Record<string, string> }>}
  */
 export async function extractStreamtape(urlOrId) {
   let fileCode = (urlOrId || "").trim();
+  let pageUrl = "";
   if (fileCode.includes("://")) {
+    pageUrl = fileCode;
     try {
       const u = new URL(fileCode);
       const parts = u.pathname.replace(/\/+$/, "").split("/");
       fileCode = parts[parts.length - 1];
     } catch (_) {}
-  }
-  fileCode = fileCode.replace(/[^a-zA-Z0-9_\-]/g, "");
-  if (!fileCode) {
-    throw new Error("Invalid or empty Streamtape ID");
+  } else {
+    fileCode = fileCode.replace(/[^a-zA-Z0-9_\-]/g, "");
+    if (!fileCode) {
+      throw new Error("Invalid or empty Streamtape ID");
+    }
+    pageUrl = `https://streamtape.com/v/${fileCode}/`;
   }
 
-  const pageUrl = `https://streamtape.com/v/${fileCode}/`;
   const resp = await fetch(pageUrl, {
     headers: {
       "User-Agent":
@@ -192,15 +195,36 @@ export async function extractStreamtape(urlOrId) {
 
   const html = await resp.text();
 
-  // Search for token expressions in script tags
+  // CloudStream 3 exact extraction:
+  // script.lines().firstOrNull { it.contains("botlink').innerHTML") }
+  // it.substringAfter(").innerHTML").replaceFirst("=", "var url =")
   let matchExpr = "";
-  const mRobot = html.match(/getElementById\(['"](?:no)?robotlink['"]\)\.innerHTML\s*=\s*([^;]+);/i);
-  const mBot = html.match(/botlink['"]\)\.innerHTML\s*=\s*([^;]+);/i);
-  const mIdeo = html.match(/getElementById\(['"]ideoooolink['"]\)\.innerHTML\s*=\s*([^;]+);/i);
+  for (const line of html.split("\n")) {
+    if (line.includes("botlink').innerHTML")) {
+      const idx = line.indexOf(").innerHTML");
+      if (idx !== -1) {
+        const after = line.substring(idx + ").innerHTML".length);
+        const eqIdx = after.indexOf("=");
+        if (eqIdx !== -1) {
+          let rawExpr = after.substring(eqIdx + 1);
+          if (rawExpr.includes("</script>")) {
+            rawExpr = rawExpr.substring(0, rawExpr.indexOf("</script>"));
+          }
+          matchExpr = rawExpr.trim().replace(/;+$/, "");
+          break;
+        }
+      }
+    }
+  }
 
-  if (mRobot) matchExpr = mRobot[1].trim();
-  else if (mBot) matchExpr = mBot[1].trim();
-  else if (mIdeo) matchExpr = mIdeo[1].trim();
+  if (!matchExpr) {
+    const mRobot = html.match(/getElementById\(['"](?:no)?robotlink['"]\)\.innerHTML\s*=\s*([^;]+);/i);
+    const mBot = html.match(/botlink['"]\)\.innerHTML\s*=\s*([^;]+);/i);
+    const mIdeo = html.match(/getElementById\(['"]ideoooolink['"]\)\.innerHTML\s*=\s*([^;]+);/i);
+    if (mRobot) matchExpr = mRobot[1].trim();
+    else if (mBot) matchExpr = mBot[1].trim();
+    else if (mIdeo) matchExpr = mIdeo[1].trim();
+  }
 
   if (!matchExpr) {
     throw new Error("Could not find Streamtape token expression in HTML");
@@ -233,7 +257,7 @@ export async function extractStreamtape(urlOrId) {
     throw new Error("Failed to evaluate Streamtape token expression");
   }
 
-  let getVideoUrl = evalResult;
+  let getVideoUrl = String(evalResult).trim();
   if (getVideoUrl.startsWith("//")) {
     getVideoUrl = "https:" + getVideoUrl;
   } else if (!getVideoUrl.startsWith("http")) {
@@ -243,40 +267,24 @@ export async function extractStreamtape(urlOrId) {
     getVideoUrl += "&stream=1";
   }
 
-  // Follow 302 redirect from Cloudflare Worker to resolve tapecontent.net direct URL
-  let finalStreamUrl = getVideoUrl;
-  try {
-    const headResp = await fetch(getVideoUrl, {
-      method: "HEAD",
-      redirect: "manual",
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Referer": "https://streamtape.com/"
-      }
-    });
-
-    if (headResp.status >= 300 && headResp.status < 400) {
-      const loc = headResp.headers.get("Location") || headResp.headers.get("location");
-      if (loc) {
-        finalStreamUrl = loc;
-      }
-    }
-  } catch (_) {}
-
   let title = "";
   const titleMatch = html.match(/<title>(.*?)<\/title>/i);
   if (titleMatch) {
     title = titleMatch[1].replace(/\s+at\s+Streamtape\.com.*$/i, "").trim();
   }
 
+  let streamOrigin = "https://streamtape.com";
+  try {
+    streamOrigin = new URL(pageUrl).origin;
+  } catch (_) {}
+
   return {
-    streamUrl: finalStreamUrl,
+    streamUrl: getVideoUrl,
     streamType: "mp4",
     title,
     headers: {
-      "Referer": "https://streamtape.com/",
-      "Origin": "https://streamtape.com"
+      "Referer": pageUrl,
+      "Origin": streamOrigin
     }
   };
 }
