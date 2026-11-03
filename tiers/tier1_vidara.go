@@ -634,7 +634,16 @@ func (v *VidaraTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.Reso
 			res.Source = src
 		}
 		if src == "hubcloud" || strings.HasPrefix(strings.ToLower(src), "hubcloud") {
-			res.Direct = true
+			isProxied := false
+			if v.workerClient != nil {
+				for _, wURL := range v.workerClient.GetWorkerURLs() {
+					if strings.HasPrefix(streamURL, wURL) {
+						isProxied = true
+						break
+					}
+				}
+			}
+			res.Direct = !isProxied
 			res.StreamType = "mkv"
 			if strings.Contains(strings.ToLower(streamURL), ".mp4") {
 				res.StreamType = "mp4"
@@ -717,7 +726,16 @@ func (v *VidaraTier) ResolveTV(ctx context.Context, tmdbID, season, episode int)
 			res.Source = src
 		}
 		if src == "hubcloud" || strings.HasPrefix(strings.ToLower(src), "hubcloud") {
-			res.Direct = true
+			isProxied := false
+			if v.workerClient != nil {
+				for _, wURL := range v.workerClient.GetWorkerURLs() {
+					if strings.HasPrefix(streamURL, wURL) {
+						isProxied = true
+						break
+					}
+				}
+			}
+			res.Direct = !isProxied
 			res.StreamType = "mkv"
 			if strings.Contains(strings.ToLower(streamURL), ".mp4") {
 				res.StreamType = "mp4"
@@ -801,6 +819,28 @@ func (v *VidaraTier) tryResolveStream(ctx context.Context, vaID, shID, stID, hdh
 		log.Printf("[tier1] resolving stream for hdhub=%s", hdhubID)
 		if ext, err := v.ExtractHubCloud(resolveCtx, hdhubID); err == nil && ext != nil && ext.URL != "" {
 			log.Printf("[tier1] successfully extracted HubCloud stream: %s", ext.URL)
+			if workerClient != nil && workerClient.HasWorkers() {
+				log.Printf("[tier1] proxying extracted HubCloud stream via Cloudflare Worker...")
+				sess, err := workerClient.CreateSession(resolveCtx, proxy.SessionRequest{
+					URL:     ext.URL,
+					Headers: ext.Headers,
+					VideoID: strconv.Itoa(tmdbID),
+					Type:    mediaType,
+				})
+				if err == nil && sess != nil && sess.PlaybackURL != "" {
+					pURL := sess.PlaybackURL
+					if strings.Contains(strings.ToLower(ext.URL), ".mkv") && strings.HasSuffix(pURL, "/master.m3u8") {
+						pURL = strings.TrimSuffix(pURL, "/master.m3u8") + "/stream.mkv"
+					} else if strings.Contains(strings.ToLower(ext.URL), ".mp4") && strings.HasSuffix(pURL, "/master.m3u8") {
+						pURL = strings.TrimSuffix(pURL, "/master.m3u8") + "/video.mp4"
+					}
+					log.Printf("[tier1] successfully proxied HubCloud via Worker: %s", pURL)
+					return pURL, nil, "hubcloud"
+				}
+				if err != nil {
+					log.Printf("[tier1] Worker proxying failed for HubCloud: %v, using direct URL", err)
+				}
+			}
 			return ext.URL, ext.Headers, "hubcloud"
 		} else if err != nil {
 			log.Printf("[tier1] ExtractHubCloud error for %s: %v", hdhubID, err)
@@ -999,15 +1039,26 @@ func (v *VidaraTier) ExtractStreamTape(ctx context.Context, urlOrID string) (*mo
 		streamURL += "&stream=1"
 	}
 
+	// Defensive cleanup of any obfuscation remnants
+	streamURL = strings.ReplaceAll(streamURL, "/get_xcdvideo?", "/get_video?")
+	streamURL = strings.ReplaceAll(streamURL, "xcdd=", "d=")
+	streamURL = strings.ReplaceAll(streamURL, "/get_xcd", "/get_")
+
+	// Resolve 302 redirect to the real CDN URL (tapecontent.net)
+	realURL := streamURL
+	if resolved := v.resolveRedirect(ctx, streamURL, targetURL); resolved != "" {
+		realURL = resolved
+	}
+
 	return &models.ExtractorResponse{
 		Status:         "success",
 		Success:        true,
 		Source:         "StreamTape",
 		OriginalURL:    targetURL,
-		URL:            streamURL,
-		DirectURL:      streamURL,
-		TapecontentURL: streamURL,
-		StreamURL:      streamURL,
+		URL:            realURL,
+		DirectURL:      realURL,
+		TapecontentURL: realURL,
+		StreamURL:      realURL,
 		Text:           title,
 		Title:          title,
 		StreamType:     "mp4",
@@ -1057,8 +1108,10 @@ func EvalStreamTapeJS(ctx context.Context, expr string) string {
 		}
 	}
 
-	// Pure Go interpreter matching app.py regex implementation
-	matches := reSubToken.FindAllStringSubmatch(expr, -1)
+	// Pure Go interpreter with parentheses stripping so chains like ('...').substring match
+	cleanExpr := strings.ReplaceAll(expr, "(", "")
+	cleanExpr = strings.ReplaceAll(cleanExpr, ")", "")
+	matches := reSubToken.FindAllStringSubmatch(cleanExpr, -1)
 	var parts []string
 	for _, m := range matches {
 		val := m[1]

@@ -2,6 +2,8 @@ package tiers
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"vidara-api/models"
+	"vidara-api/proxy"
 )
 
 func TestVidaraTier_LoadDataAndLookup(t *testing.T) {
@@ -405,6 +408,77 @@ func TestVidaraTier_ExtractHubCloud_Mock(t *testing.T) {
 	}
 }
 
+func TestVidaraTier_HubCloud_WorkerProxy(t *testing.T) {
+	// Mock worker server
+	workerCalled := false
+	var workerHost string
+	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		workerCalled = true
+		workerHost = r.Host
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(proxy.SessionResponse{
+			Success:     true,
+			SessionID:   "sess-hub",
+			PlaybackURL: "http://" + r.Host + "/session/sess-hub/master.m3u8",
+		})
+	}))
+	defer workerServer.Close()
+
+	// Mock options server for HubCloud
+	optionsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		html := `
+<div class="card-header">Movie.2026.1080p.mkv</div>
+<a href="https://example.com/fslv2/stream.mkv" class="btn">FSLv2 Server [1080p]</a>
+`
+		_, _ = w.Write([]byte(html))
+	}))
+	defer optionsServer.Close()
+
+	driveServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		html := fmt.Sprintf(`<a id="download" href="%s">Download</a>`, optionsServer.URL)
+		_, _ = w.Write([]byte(html))
+	}))
+	defer driveServer.Close()
+
+	tier := NewVidaraTier("https://vidara.to", "https://streamtape.com", 5*time.Second)
+	wc := proxy.NewWorkerClient([]string{workerServer.URL}, "", 2*time.Second)
+	tier.SetWorkerClient(wc)
+
+	// Add test movie with HDHub pointing to mock driveServer
+	tier.movieIndex[77701] = MovieRecord{
+		ID:    77701,
+		Title: "Test HubCloud Movie",
+		Play: models.Playback{
+			HDHub: driveServer.URL,
+		},
+	}
+
+	res, err := tier.ResolveMovie(context.Background(), 77701)
+	if err != nil {
+		t.Fatalf("ResolveMovie failed: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success=true, got %+v", res)
+	}
+
+	if !workerCalled {
+		t.Errorf("expected worker to be called for HubCloud stream proxying")
+	}
+
+	expectedURL := "http://" + workerHost + "/session/sess-hub/stream.mkv"
+	if res.URL != expectedURL {
+		t.Errorf("expected proxied URL %q, got %q", expectedURL, res.URL)
+	}
+	if res.Direct != false {
+		t.Errorf("expected Direct=false for proxied stream")
+	}
+	if res.StreamType != "mkv" {
+		t.Errorf("expected StreamType='mkv', got %q", res.StreamType)
+	}
+}
+
 func TestVidaraTier_ExtractHubCloud_Live(t *testing.T) {
 	liveURL := "https://hubcloud.ist/drive/ligaiuaszsqmfaj"
 	tier := NewVidaraTier("https://vidara.to", "https://streamtape.com", 15*time.Second)
@@ -426,3 +500,29 @@ func TestVidaraTier_ExtractHubCloud_Live(t *testing.T) {
 		t.Errorf("unexpected stream URL format: %s", res.URL)
 	}
 }
+
+func TestVidaraTier_ExtractStreamTape_Live(t *testing.T) {
+	liveURL := "https://streamtape.com/v/0A2vDYQz3wIbPQ6"
+	tier := NewVidaraTier("https://vidara.to", "https://streamtape.com", 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	res, err := tier.ExtractStreamTape(ctx, liveURL)
+	if err != nil {
+		t.Fatalf("Streamtape live extraction failed: %v", err)
+	}
+
+	if !res.Success || res.URL == "" {
+		t.Fatalf("expected valid stream URL from Streamtape, got %+v", res)
+	}
+
+	t.Logf("Extracted StreamTape Live Stream: %s (Title: %s, StreamType: %s)", res.URL, res.Title, res.StreamType)
+
+	if !strings.Contains(res.URL, "tapecontent.net") && !strings.Contains(res.URL, "streamtape.com/get_video") {
+		t.Errorf("expected tapecontent.net or streamtape.com get_video URL, got: %s", res.URL)
+	}
+	if !strings.Contains(res.URL, "stream=1") {
+		t.Errorf("expected stream=1 in URL, got: %s", res.URL)
+	}
+}
+

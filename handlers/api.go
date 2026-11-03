@@ -55,11 +55,6 @@ func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.Res
 		return nil
 	}
 
-	// Never proxy HubCloud streams - send real direct URL to client!
-	if result.Source == "hubcloud" || strings.HasPrefix(strings.ToLower(result.Source), "hubcloud") {
-		return nil
-	}
-
 	// Skip if URL is already a proxied Cloudflare Worker URL (e.g. from in-worker extraction of StreamHG or Streamtape)
 	for _, wURL := range h.workerClient.GetWorkerURLs() {
 		if strings.HasPrefix(result.URL, wURL) {
@@ -67,9 +62,11 @@ func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.Res
 		}
 	}
 
-	// Direct MP4 / MKV streams do not require HLS proxying, playlist rewriting, or header forwarding
-	if result.Direct || result.StreamType == "mp4" || result.StreamType == "mkv" ||
-		strings.Contains(strings.ToLower(result.URL), ".mp4") || strings.Contains(strings.ToLower(result.URL), ".mkv") {
+	isHubCloud := result.Source == "hubcloud" || strings.Contains(strings.ToLower(result.Source), "hubcloud")
+
+	// Direct MP4 / MKV streams do not require HLS proxying unless explicitly requested (e.g. HubCloud)
+	if !isHubCloud && (result.Direct || result.StreamType == "mp4" || result.StreamType == "mkv" ||
+		strings.Contains(strings.ToLower(result.URL), ".mp4") || strings.Contains(strings.ToLower(result.URL), ".mkv")) {
 		return nil
 	}
 
@@ -90,8 +87,21 @@ func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.Res
 		return fmt.Errorf("failed to register playback proxy session: %w", err)
 	}
 
+	playbackURL := sessResp.PlaybackURL
+	isMKV := strings.EqualFold(result.StreamType, "mkv") || strings.Contains(strings.ToLower(upstreamURL), ".mkv")
+	isMP4 := strings.EqualFold(result.StreamType, "mp4") || strings.Contains(strings.ToLower(upstreamURL), ".mp4")
+
+	if isMKV && strings.HasSuffix(playbackURL, "/master.m3u8") {
+		playbackURL = strings.TrimSuffix(playbackURL, "/master.m3u8") + "/stream.mkv"
+	} else if isMP4 && strings.HasSuffix(playbackURL, "/master.m3u8") {
+		playbackURL = strings.TrimSuffix(playbackURL, "/master.m3u8") + "/video.mp4"
+	}
+
 	// Update result with clean worker URL
-	result.URL = sessResp.PlaybackURL
+	result.URL = playbackURL
+	if isHubCloud || isMKV || isMP4 {
+		result.Direct = false
+	}
 
 	// Clear upstream Origin and Referer requirements so client does not need them
 	if result.Headers != nil {
@@ -102,7 +112,7 @@ func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.Res
 	}
 
 	if result.Play != nil {
-		result.Play.URL = sessResp.PlaybackURL
+		result.Play.URL = playbackURL
 	}
 
 	return nil
@@ -558,7 +568,15 @@ func (h *APIHandler) HandleStreamTapeDefault(w http.ResponseWriter, r *http.Requ
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
-	result, err := h.vidaraTier.ExtractStreamTape(ctx, StreamtapeDefaultURL)
+	targetURL := r.URL.Query().Get("url")
+	if targetURL == "" {
+		targetURL = r.URL.Query().Get("id")
+	}
+	if targetURL == "" {
+		targetURL = StreamtapeDefaultURL
+	}
+
+	result, err := h.vidaraTier.ExtractStreamTape(ctx, targetURL)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -582,7 +600,15 @@ func (h *APIHandler) HandleVidaraDefault(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
-	result, err := h.vidaraTier.ExtractVidara(ctx, VidaraDefaultURL)
+	targetURL := r.URL.Query().Get("url")
+	if targetURL == "" {
+		targetURL = r.URL.Query().Get("id")
+	}
+	if targetURL == "" {
+		targetURL = VidaraDefaultURL
+	}
+
+	result, err := h.vidaraTier.ExtractVidara(ctx, targetURL)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)

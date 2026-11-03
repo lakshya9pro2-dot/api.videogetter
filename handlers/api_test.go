@@ -599,12 +599,18 @@ func TestAPI_DirectMP4_BypassesWorkerProxy(t *testing.T) {
 	}
 }
 
-func TestAPI_HubCloud_BypassesWorkerProxy(t *testing.T) {
+func TestAPI_HubCloud_ProxiedViaWorker(t *testing.T) {
 	workerCalled := false
+	var workerHost string
 	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		workerCalled = true
+		workerHost = r.Host
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"success":true,"playback_url":"https://worker.dev/session/123/master.m3u8"}`))
+		_ = json.NewEncoder(w).Encode(proxy.SessionResponse{
+			Success:     true,
+			SessionID:   "sess-hubcloud",
+			PlaybackURL: "http://" + r.Host + "/session/sess-hubcloud/master.m3u8",
+		})
 	}))
 	defer workerServer.Close()
 
@@ -644,17 +650,57 @@ func TestAPI_HubCloud_BypassesWorkerProxy(t *testing.T) {
 		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
 	}
 
-	if workerCalled {
-		t.Errorf("Cloudflare worker proxy should NOT be called for HubCloud streams!")
+	if !workerCalled {
+		t.Errorf("Cloudflare worker proxy SHOULD be called for HubCloud streams!")
 	}
 
 	var data map[string]interface{}
 	_ = json.NewDecoder(resp.Body).Decode(&data)
-	if data["url"] != r2RealURL {
-		t.Errorf("expected real direct HubCloud URL, got: %v", data["url"])
+	expectedURL := "http://" + workerHost + "/session/sess-hubcloud/stream.mkv"
+	if data["url"] != expectedURL {
+		t.Errorf("expected proxied worker URL %q, got: %v", expectedURL, data["url"])
 	}
-	if data["direct"] != true {
-		t.Errorf("expected direct=true for HubCloud")
+	if data["direct"] == true {
+		t.Errorf("expected direct to be false or omitted for proxied HubCloud, got: %v", data["direct"])
 	}
 }
+
+func TestAPI_StreamTape_LiveURL(t *testing.T) {
+	tier1 := tiers.NewVidaraTier("https://vidara.to", "https://streamtape.com", 15*time.Second)
+	h := NewAPIHandler(nil, tier1, nil, 15*time.Second)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/streamtape", h.HandleStreamTapeDefault)
+	mux.HandleFunc("/api/extract", h.HandleExtract)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	// Test /api/streamtape?url=https://streamtape.com/v/0A2vDYQz3wIbPQ6
+	resp, err := http.Get(server.URL + "/api/streamtape?url=https://streamtape.com/v/0A2vDYQz3wIbPQ6")
+	if err != nil {
+		t.Fatalf("request to /api/streamtape failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
+	}
+
+	var stData map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&stData)
+	streamURL, _ := stData["url"].(string)
+	title, _ := stData["title"].(string)
+
+	if !strings.Contains(streamURL, "tapecontent.net") && !strings.Contains(streamURL, "streamtape.com/get_video") {
+		t.Errorf("expected tapecontent.net or streamtape.com get_video url, got %v", streamURL)
+	}
+	if !strings.Contains(streamURL, "stream=1") {
+		t.Errorf("expected stream=1 in url, got %v", streamURL)
+	}
+	if title == "" {
+		t.Errorf("expected title to be extracted, got empty")
+	}
+	t.Logf("Successfully extracted live Streamtape via API: url=%s, title=%s", streamURL, title)
+}
+
 

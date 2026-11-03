@@ -212,6 +212,42 @@ test("Worker POST: Successfully creates session with unguessable URL", async () 
   assert.ok(json.expires_at > Date.now() / 1000);
 });
 
+test("Worker POST: Generates stream.mkv and video.mp4 URLs for direct media files", async () => {
+  const env = { WORKER_SECRET: "test-secret" };
+
+  // MKV test
+  const reqMkv = new Request("https://worker-1.example.workers.dev/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Worker-Key": "test-secret" },
+    body: JSON.stringify({
+      url: "https://r2.cloudflarestorage.com/hub/movie.1080p.mkv?token=123",
+      videoId: "101",
+      type: "movie"
+    })
+  });
+  const resMkv = await worker.fetch(reqMkv, env);
+  assert.strictEqual(resMkv.status, 201);
+  const jsonMkv = await resMkv.json();
+  assert.strictEqual(jsonMkv.success, true);
+  assert.match(jsonMkv.playback_url, /^https:\/\/worker-1\.example\.workers\.dev\/session\/.+\/stream\.mkv$/);
+
+  // MP4 test
+  const reqMp4 = new Request("https://worker-1.example.workers.dev/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Worker-Key": "test-secret" },
+    body: JSON.stringify({
+      url: "https://r2.cloudflarestorage.com/hub/movie.1080p.mp4?token=123",
+      videoId: "102",
+      type: "movie"
+    })
+  });
+  const resMp4 = await worker.fetch(reqMp4, env);
+  assert.strictEqual(resMp4.status, 201);
+  const jsonMp4 = await resMp4.json();
+  assert.strictEqual(jsonMp4.success, true);
+  assert.match(jsonMp4.playback_url, /^https:\/\/worker-1\.example\.workers\.dev\/session\/.+\/video\.mp4$/);
+});
+
 test("Worker POST: Rejects request with missing url", async () => {
   const req = new Request("https://worker.test/session", {
     method: "POST",
@@ -449,5 +485,25 @@ test("Worker POST: /extract endpoint validates missing parameters", async () => 
   const data = await res.json();
   assert.strictEqual(data.error, "unsupported_provider");
 });
+
+test("Extractors: evaluateStreamtapeExpression handles chained substrings and parentheses without eval", async () => {
+  const { evaluateStreamtapeExpression } = await import("../src/extractors.js");
+
+  // Test 1: Parentheses with chained .substring
+  const expr1 = `'//streamtape.com/get_video?i' + ('xcdd=0A2vDYQz3wIbPQ6&expires=1793436174&ip=GxAsDROSKxSHDN&token=2GsoKzB2CZDn').substring(1).substring(2)`;
+  const res1 = evaluateStreamtapeExpression(expr1);
+  assert.strictEqual(res1, "//streamtape.com/get_video?id=0A2vDYQz3wIbPQ6&expires=1793436174&ip=GxAsDROSKxSHDN&token=2GsoKzB2CZDn");
+
+  // Test 2: Substring cutting off xcd
+  const expr2 = `'//streamtape.com/get_' + ('xcdvideo?id=0A2v').substring(3)`;
+  const res2 = evaluateStreamtapeExpression(expr2);
+  assert.strictEqual(res2, "//streamtape.com/get_video?id=0A2v");
+
+  // Test 3: Slice
+  const expr3 = `'//streamtape.com/get_' + ('abcvideo?id=test').slice(3)`;
+  const res3 = evaluateStreamtapeExpression(expr3);
+  assert.strictEqual(res3, "//streamtape.com/get_video?id=test");
+});
+
 
 

@@ -49,6 +49,7 @@ export async function createSessionId(sessionData, env) {
     h: sessionData.headers || {},
     v: sessionData.videoId || "",
     t: sessionData.type || "",
+    p: sessionData.provider || "",
     c: sessionData.createdAt,
     e: sessionData.expiresAt
   });
@@ -116,6 +117,7 @@ export async function verifySessionId(sessionId, env) {
       headers: data.h || {},
       videoId: data.v,
       type: data.t,
+      provider: data.p || "",
       createdAt: data.c,
       expiresAt: data.e
     };
@@ -141,6 +143,7 @@ export async function createSession(params, env) {
     headers: params.headers || {},
     videoId: params.videoId || "",
     type: params.type || "movie",
+    provider: params.provider || "",
     createdAt: now,
     expiresAt: expiresAt
   };

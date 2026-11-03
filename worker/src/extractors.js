@@ -158,10 +158,124 @@ export async function extractStreamHG(urlOrId) {
 }
 
 /**
- * Extracts streaming URL from Streamtape directly inside Cloudflare Worker matching CloudStream 3.
+ * Safe, AST-free evaluator for Streamtape JavaScript token expressions.
+ * Handles string literals, concatenation (+), parentheses ((...)),
+ * and chained methods (.substring, .substr, .slice) without using eval() or new Function().
+ * Completely compliant with Cloudflare Workers' strict security model (disallowing dynamic eval).
+ *
+ * @param {string} expr
+ * @returns {string}
+ */
+export function evaluateStreamtapeExpression(expr) {
+  if (!expr || typeof expr !== "string") return "";
+
+  const str = expr.trim();
+  let pos = 0;
+
+  function skipWhitespace() {
+    while (pos < str.length && /\s/.test(str[pos])) pos++;
+  }
+
+  function parsePrimary() {
+    skipWhitespace();
+    if (pos >= str.length) return "";
+
+    if (str[pos] === "(") {
+      pos++; // skip (
+      let val = parseConcat();
+      skipWhitespace();
+      if (pos < str.length && str[pos] === ")") {
+        pos++; // skip )
+      }
+      return applyChainedMethods(val);
+    }
+
+    if (str[pos] === "'" || str[pos] === '"') {
+      const quote = str[pos];
+      pos++; // skip opening quote
+      let val = "";
+      while (pos < str.length && str[pos] !== quote) {
+        if (str[pos] === "\\" && pos + 1 < str.length) {
+          pos++;
+          val += str[pos];
+        } else {
+          val += str[pos];
+        }
+        pos++;
+      }
+      if (pos < str.length && str[pos] === quote) {
+        pos++; // skip closing quote
+      }
+      return applyChainedMethods(val);
+    }
+
+    return "";
+  }
+
+  function applyChainedMethods(val) {
+    while (pos < str.length) {
+      skipWhitespace();
+      if (str[pos] === ".") {
+        pos++; // skip .
+        let methodName = "";
+        while (pos < str.length && /[a-zA-Z]/.test(str[pos])) {
+          methodName += str[pos++];
+        }
+        skipWhitespace();
+        if (str[pos] === "(") {
+          pos++; // skip (
+          let argsStr = "";
+          while (pos < str.length && str[pos] !== ")") {
+            argsStr += str[pos++];
+          }
+          if (pos < str.length && str[pos] === ")") pos++; // skip )
+
+          const args = argsStr.split(",").map(s => parseInt(s.trim(), 10));
+          if (methodName === "substring") {
+            const start = isNaN(args[0]) ? 0 : args[0];
+            const end = isNaN(args[1]) ? val.length : args[1];
+            val = val.substring(start, end);
+          } else if (methodName === "substr") {
+            const start = isNaN(args[0]) ? 0 : args[0];
+            const length = isNaN(args[1]) ? val.length : args[1];
+            val = val.substr(start, length);
+          } else if (methodName === "slice") {
+            const start = isNaN(args[0]) ? 0 : args[0];
+            const end = isNaN(args[1]) ? val.length : args[1];
+            val = val.slice(start, end);
+          }
+        }
+      } else {
+        break;
+      }
+    }
+    return val;
+  }
+
+  function parseConcat() {
+    let result = parsePrimary();
+    while (pos < str.length) {
+      skipWhitespace();
+      if (pos < str.length && str[pos] === "+") {
+        pos++; // skip +
+        const next = parsePrimary();
+        result += next;
+      } else {
+        break;
+      }
+    }
+    return result;
+  }
+
+  return parseConcat();
+}
+
+/**
+ * Extracts streaming URL from Streamtape directly inside Cloudflare Worker matching CloudStream 3,
+ * and resolves the 302 redirect so the worker proxies the real storage stream (tapecontent.net).
  *
  * @param {string} urlOrId
- * @returns {Promise<{ streamUrl: string, streamType: string, title: string, headers: Record<string, string> }>}
+ * @returns {Promise<{ streamUrl: string, directUrl: string, tapecontentUrl: string, getVideoUrl: string, streamType: string, title: string, headers: Record<string, string> }>}
  */
 export async function extractStreamtape(urlOrId) {
   let fileCode = (urlOrId || "").trim();
@@ -230,27 +344,14 @@ export async function extractStreamtape(urlOrId) {
     throw new Error("Could not find Streamtape token expression in HTML");
   }
 
-  // Evaluate substring expression
-  let evalResult = "";
-  try {
-    const cleanExpr = matchExpr.replace(/[^a-zA-Z0-9_\-./?&=+()'"]/g, "");
-    evalResult = new Function(`return (${cleanExpr})`)();
-  } catch (_) {
-    const tokenRegex = /['"]([^'"]*)['"]((?:\.substring\(\s*\d+\s*(?:,\s*\d+\s*)?\))*)/g;
-    const parts = [];
-    let tm;
-    while ((tm = tokenRegex.exec(matchExpr)) !== null) {
-      let val = tm[1];
-      const subs = tm[2];
-      const subCalls = [...subs.matchAll(/\.substring\((\d+)(?:,\s*(\d+))?\)/g)];
-      for (const sc of subCalls) {
-        const start = parseInt(sc[1], 10);
-        const end = sc[2] ? parseInt(sc[2], 10) : val.length;
-        val = val.substring(start, end);
-      }
-      parts.push(val);
-    }
-    evalResult = parts.join("");
+  // Safe AST-free evaluation (never uses eval() or new Function())
+  let evalResult = evaluateStreamtapeExpression(matchExpr);
+
+  if (!evalResult) {
+    try {
+      const cleanExpr = matchExpr.replace(/[^a-zA-Z0-9_\-./?&=+()'"]/g, "");
+      evalResult = new Function(`return (${cleanExpr})`)();
+    } catch (_) {}
   }
 
   if (!evalResult) {
@@ -258,6 +359,12 @@ export async function extractStreamtape(urlOrId) {
   }
 
   let getVideoUrl = String(evalResult).trim();
+  // Ensure obfuscation artifacts like /get_xcdvideo? or xcdd= are stripped
+  getVideoUrl = getVideoUrl
+    .replace(/\/get_xcdvideo\?/i, "/get_video?")
+    .replace(/xcdd=/i, "d=")
+    .replace(/\/get_xcd/i, "/get_");
+
   if (getVideoUrl.startsWith("//")) {
     getVideoUrl = "https:" + getVideoUrl;
   } else if (!getVideoUrl.startsWith("http")) {
@@ -278,8 +385,36 @@ export async function extractStreamtape(urlOrId) {
     streamOrigin = new URL(pageUrl).origin;
   } catch (_) {}
 
+  // Resolve 302 redirect from streamtape.com/get_video to the real CDN storage URL (tapecontent.net)
+  // so the Cloudflare Worker proxies the real video storage URL directly!
+  let realStreamUrl = getVideoUrl;
+  try {
+    const redirResp = await fetch(getVideoUrl, {
+      method: "GET",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Referer": pageUrl,
+        "Range": "bytes=0-0"
+      },
+      redirect: "manual"
+    });
+
+    if (redirResp.status >= 300 && redirResp.status < 400) {
+      const loc = redirResp.headers.get("Location") || redirResp.headers.get("location");
+      if (loc && (loc.startsWith("http://") || loc.startsWith("https://"))) {
+        realStreamUrl = loc;
+      }
+    }
+  } catch (err) {
+    // If redirect check fails, realStreamUrl remains getVideoUrl
+  }
+
   return {
-    streamUrl: getVideoUrl,
+    streamUrl: realStreamUrl,
+    directUrl: realStreamUrl,
+    tapecontentUrl: realStreamUrl,
+    getVideoUrl: getVideoUrl,
     streamType: "mp4",
     title,
     headers: {
