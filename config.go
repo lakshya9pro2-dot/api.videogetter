@@ -24,6 +24,9 @@ const DefaultBackendAPIKey = "lakshya9310081539@"
 // DefaultProxyWorkerURL is the primary Cloudflare Worker endpoint for HLS playback proxying.
 const DefaultProxyWorkerURL = "https://turbo-octo-succotash.kineflex-netflex.workers.dev"
 
+// DefaultHubCloudProxyURL is the dedicated Cloudflare Worker for HubCloud streaming media proxying.
+const DefaultHubCloudProxyURL = "https://proxyservr.kineflex-netflex.workers.dev"
+
 // DefaultCineTVBaseURL is the default base URL for the CineTV (Netlify) resolver in Tier 3.
 const DefaultCineTVBaseURL = "https://cinetvtest.netlify.app"
 // ============================================================================
@@ -56,6 +59,7 @@ type Config struct {
 	ProxyWorkerSecret     string        // Shared secret sent to Cloudflare Workers (X-Worker-Key)
 	ProxyWorkerTimeout    time.Duration // Timeout per worker attempt
 	ProxyFallbackDirect   bool          // Fallback to direct stream URL if all workers fail
+	HubCloudProxyURL      string        // Dedicated Cloudflare Worker for HubCloud streaming (e.g. movi-video-proxy)
 }
 
 // LoadConfig initializes Config from environment variables or sensible defaults.
@@ -219,6 +223,14 @@ func LoadConfig() *Config {
 		proxyFallbackDirect = strings.EqualFold(fbStr, "true") || fbStr == "1"
 	}
 
+	hubCloudProxyURL := strings.TrimSpace(os.Getenv("HUBCLOUD_PROXY_URL"))
+	if hubCloudProxyURL == "" {
+		hubCloudProxyURL = strings.TrimSpace(os.Getenv("HUBCLOUD_WORKER_URL"))
+	}
+	if hubCloudProxyURL == "" {
+		hubCloudProxyURL = DefaultHubCloudProxyURL
+	}
+
 	return &Config{
 		Port:            port,
 		VidaraRemoteURL: vidaraRemoteURL,
@@ -246,5 +258,6 @@ func LoadConfig() *Config {
 		ProxyWorkerSecret:     proxyWorkerSecret,
 		ProxyWorkerTimeout:    time.Duration(proxyWorkerTimeoutSec) * time.Second,
 		ProxyFallbackDirect:   proxyFallbackDirect,
+		HubCloudProxyURL:      hubCloudProxyURL,
 	}
 }

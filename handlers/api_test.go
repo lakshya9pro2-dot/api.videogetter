@@ -600,11 +600,9 @@ func TestAPI_DirectMP4_BypassesWorkerProxy(t *testing.T) {
 }
 
 func TestAPI_HubCloud_ProxiedViaWorker(t *testing.T) {
-	workerCalled := false
-	var workerHost string
-	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		workerCalled = true
-		workerHost = r.Host
+	hlsWorkerCalled := false
+	hlsWorkerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hlsWorkerCalled = true
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(proxy.SessionResponse{
 			Success:     true,
@@ -612,7 +610,25 @@ func TestAPI_HubCloud_ProxiedViaWorker(t *testing.T) {
 			PlaybackURL: "http://" + r.Host + "/session/sess-hubcloud/master.m3u8",
 		})
 	}))
-	defer workerServer.Close()
+	defer hlsWorkerServer.Close()
+
+	hubCloudWorkerCalled := false
+	var hubCloudWorkerHost string
+	hubCloudWorkerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hubCloudWorkerCalled = true
+		hubCloudWorkerHost = r.Host
+		if r.URL.Path == "/api/hide" && r.Method == http.MethodPost {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(tiers.HubCloudHideResponse{
+				StreamURL: "/stream/Movie.2026.1080p.mkv?token=mocktoken123",
+				Token:     "mocktoken123",
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer hubCloudWorkerServer.Close()
 
 	r2RealURL := "https://701ab416771ea1b49a24683d35a33206.r2.cloudflarestorage.com/hub/Movie.2026.1080p.mkv?X-Amz-Signature=abc"
 	t1 := &mockTier{
@@ -630,9 +646,12 @@ func TestAPI_HubCloud_ProxiedViaWorker(t *testing.T) {
 		},
 	}
 
+	vidaraTier := tiers.NewVidaraTier("https://vidara.to", "https://streamtape.com", 2*time.Second)
+	vidaraTier.SetHubCloudProxyURL(hubCloudWorkerServer.URL)
+
 	r := resolver.NewCentralResolver(t1, nil, nil)
-	h := NewAPIHandler(r, nil, nil, 2*time.Second)
-	wc := proxy.NewWorkerClient([]string{workerServer.URL}, "", 2*time.Second)
+	h := NewAPIHandler(r, vidaraTier, nil, 2*time.Second)
+	wc := proxy.NewWorkerClient([]string{hlsWorkerServer.URL}, "", 2*time.Second)
 	h.SetWorkerClient(wc, false)
 
 	mux := http.NewServeMux()
@@ -650,13 +669,16 @@ func TestAPI_HubCloud_ProxiedViaWorker(t *testing.T) {
 		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
 	}
 
-	if !workerCalled {
-		t.Errorf("Cloudflare worker proxy SHOULD be called for HubCloud streams!")
+	if hlsWorkerCalled {
+		t.Errorf("Generic HLS worker should NOT be called for HubCloud streams!")
+	}
+	if !hubCloudWorkerCalled {
+		t.Errorf("Dedicated HubCloud proxy worker SHOULD be called for HubCloud streams!")
 	}
 
 	var data map[string]interface{}
 	_ = json.NewDecoder(resp.Body).Decode(&data)
-	expectedURL := "http://" + workerHost + "/session/sess-hubcloud/stream.mkv"
+	expectedURL := "http://" + hubCloudWorkerHost + "/stream/Movie.2026.1080p.mkv?token=mocktoken123"
 	if data["url"] != expectedURL {
 		t.Errorf("expected proxied worker URL %q, got: %v", expectedURL, data["url"])
 	}

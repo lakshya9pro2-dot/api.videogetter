@@ -19,6 +19,8 @@ func main() {
 	// 1. Tier 1 - Vidara & StreamHG
 	tier1 := tiers.NewVidaraTier(cfg.VidaraURL, cfg.StreamTapeURL, cfg.RequestTimeout)
 	tier1.SetStreamHGBase(cfg.StreamHGBaseURL)
+	tier1.SetHubCloudProxyURL(cfg.HubCloudProxyURL)
+	log.Printf("[*] Tier 1 HubCloud Proxy Worker configured: %s", cfg.HubCloudProxyURL)
 	if err := tier1.LoadData(cfg.VidaraRemoteURL, cfg.DataFilePath, "data/vidara.json", "data.json"); err != nil {
 		log.Printf("[!] Warning loading Vidara data: %v", err)
 	}

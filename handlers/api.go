@@ -63,10 +63,21 @@ func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.Res
 	}
 
 	isHubCloud := result.Source == "hubcloud" || strings.Contains(strings.ToLower(result.Source), "hubcloud")
+	if isHubCloud || strings.HasPrefix(result.URL, "https://proxyservr.kineflex-netflex.workers.dev") {
+		// HubCloud is exclusively proxied via its dedicated streaming proxy (https://proxyservr.kineflex-netflex.workers.dev).
+		// Never route HubCloud through generic HLS workerClient.
+		if isHubCloud && h.vidaraTier != nil && !strings.HasPrefix(result.URL, h.vidaraTier.GetHubCloudProxyURL()) {
+			if proxiedURL, err := h.vidaraTier.ProxyHubCloudStream(ctx, result.URL); err == nil && proxiedURL != "" {
+				result.URL = proxiedURL
+				result.Direct = false
+			}
+		}
+		return nil
+	}
 
-	// Direct MP4 / MKV streams do not require HLS proxying unless explicitly requested (e.g. HubCloud)
-	if !isHubCloud && (result.Direct || result.StreamType == "mp4" || result.StreamType == "mkv" ||
-		strings.Contains(strings.ToLower(result.URL), ".mp4") || strings.Contains(strings.ToLower(result.URL), ".mkv")) {
+	// Direct MP4 / MKV streams do not require HLS proxying unless explicitly requested
+	if result.Direct || result.StreamType == "mp4" || result.StreamType == "mkv" ||
+		strings.Contains(strings.ToLower(result.URL), ".mp4") || strings.Contains(strings.ToLower(result.URL), ".mkv") {
 		return nil
 	}
 

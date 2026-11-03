@@ -28,6 +28,9 @@ const DefaultVidaraJSONURL = "https://www.jsonkeeper.com/b/FWSAK"
 // DefaultStreamHGBase is the default base URL for StreamHG / Hanerix resolver.
 const DefaultStreamHGBase = "https://hanerix.com"
 
+// DefaultHubCloudProxyWorkerURL is the dedicated Cloudflare Worker for HubCloud streaming media proxying.
+const DefaultHubCloudProxyWorkerURL = "https://proxyservr.kineflex-netflex.workers.dev"
+
 var (
 	streamhgDomains = map[string]bool{
 		"streamhg.com":   true,
@@ -123,9 +126,10 @@ type VidaraTier struct {
 	movieIndex    map[int]MovieRecord
 	tvIndex       map[int]map[int]map[int]TVEpisodeRecord // tmdbID -> season -> episode -> record
 	vidaraBase    string
-	streamBase    string
-	streamHGBase  string
-	workerClient  *proxy.WorkerClient
+	streamBase       string
+	streamHGBase     string
+	hubcloudProxyURL string
+	workerClient     *proxy.WorkerClient
 	client        *http.Client
 	noRedirClient *http.Client
 	loadedSources []string
@@ -143,10 +147,11 @@ func NewVidaraTier(vidaraBase, streamtapeBase string, timeout time.Duration) *Vi
 	return &VidaraTier{
 		movieIndex:   make(map[int]MovieRecord),
 		tvIndex:      make(map[int]map[int]map[int]TVEpisodeRecord),
-		vidaraBase:   strings.TrimRight(vidaraBase, "/"),
-		streamBase:   strings.TrimRight(streamtapeBase, "/"),
-		streamHGBase: DefaultStreamHGBase,
-		client:       &http.Client{Timeout: timeout},
+		vidaraBase:       strings.TrimRight(vidaraBase, "/"),
+		streamBase:       strings.TrimRight(streamtapeBase, "/"),
+		streamHGBase:     DefaultStreamHGBase,
+		hubcloudProxyURL: DefaultHubCloudProxyWorkerURL,
+		client:           &http.Client{Timeout: timeout},
 		noRedirClient: &http.Client{
 			Timeout: timeout,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -168,6 +173,91 @@ func (v *VidaraTier) SetWorkerClient(client *proxy.WorkerClient) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.workerClient = client
+}
+
+// SetHubCloudProxyURL sets the dedicated Cloudflare Worker URL for HubCloud streaming media proxying.
+func (v *VidaraTier) SetHubCloudProxyURL(urlStr string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	cleaned := strings.TrimRight(strings.TrimSpace(urlStr), "/")
+	if cleaned != "" {
+		v.hubcloudProxyURL = cleaned
+	}
+}
+
+// GetHubCloudProxyURL returns the configured HubCloud proxy URL or the default worker URL.
+func (v *VidaraTier) GetHubCloudProxyURL() string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	if v.hubcloudProxyURL == "" {
+		return DefaultHubCloudProxyWorkerURL
+	}
+	return v.hubcloudProxyURL
+}
+
+// HubCloudHideResponse represents the response from movi-video-proxy /api/hide endpoint.
+type HubCloudHideResponse struct {
+	StreamURL    string `json:"streamUrl"`
+	RawStreamURL string `json:"rawStreamUrl"`
+	Token        string `json:"token"`
+	ExpiresAt    int64  `json:"expiresAt"`
+	Error        string `json:"error,omitempty"`
+}
+
+// ProxyHubCloudStream encrypts and proxies a raw HubCloud stream URL via the movi-video-proxy worker.
+func (v *VidaraTier) ProxyHubCloudStream(ctx context.Context, rawURL string) (string, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return "", fmt.Errorf("empty raw URL")
+	}
+
+	proxyBase := v.GetHubCloudProxyURL()
+	if proxyBase == "" {
+		return rawURL, nil
+	}
+
+	// If already proxied via this worker, return as is
+	if strings.HasPrefix(rawURL, proxyBase) {
+		return rawURL, nil
+	}
+
+	hideEndpoint := fmt.Sprintf("%s/api/hide", strings.TrimRight(proxyBase, "/"))
+
+	reqBody, err := json.Marshal(map[string]string{"url": rawURL})
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal hide request: %w", err)
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+
+	httpReq, err := http.NewRequestWithContext(reqCtx, http.MethodPost, hideEndpoint, bytes.NewReader(reqBody))
+	if err != nil {
+		return "", fmt.Errorf("failed to create hide request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0")
+
+	resp, err := v.client.Do(httpReq)
+	if err != nil {
+		log.Printf("[tier1] HubCloud worker /api/hide failed: %v, attempting fallback /proxy?url=", err)
+		return fmt.Sprintf("%s/proxy?url=%s", strings.TrimRight(proxyBase, "/"), url.QueryEscape(rawURL)), nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		var hideResp HubCloudHideResponse
+		if err := json.NewDecoder(resp.Body).Decode(&hideResp); err == nil && hideResp.StreamURL != "" {
+			streamPath := hideResp.StreamURL
+			if !strings.HasPrefix(streamPath, "/") {
+				streamPath = "/" + streamPath
+			}
+			return strings.TrimRight(proxyBase, "/") + streamPath, nil
+		}
+	}
+
+	log.Printf("[tier1] HubCloud worker /api/hide returned status %d, falling back to /proxy?url=", resp.StatusCode)
+	return fmt.Sprintf("%s/proxy?url=%s", strings.TrimRight(proxyBase, "/"), url.QueryEscape(rawURL)), nil
 }
 
 // CleanID cleans an ID from any URL or decoration.
@@ -635,13 +725,9 @@ func (v *VidaraTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.Reso
 		}
 		if src == "hubcloud" || strings.HasPrefix(strings.ToLower(src), "hubcloud") {
 			isProxied := false
-			if v.workerClient != nil {
-				for _, wURL := range v.workerClient.GetWorkerURLs() {
-					if strings.HasPrefix(streamURL, wURL) {
-						isProxied = true
-						break
-					}
-				}
+			hubProxy := v.GetHubCloudProxyURL()
+			if hubProxy != "" && strings.HasPrefix(streamURL, hubProxy) {
+				isProxied = true
 			}
 			res.Direct = !isProxied
 			res.StreamType = "mkv"
@@ -727,13 +813,9 @@ func (v *VidaraTier) ResolveTV(ctx context.Context, tmdbID, season, episode int)
 		}
 		if src == "hubcloud" || strings.HasPrefix(strings.ToLower(src), "hubcloud") {
 			isProxied := false
-			if v.workerClient != nil {
-				for _, wURL := range v.workerClient.GetWorkerURLs() {
-					if strings.HasPrefix(streamURL, wURL) {
-						isProxied = true
-						break
-					}
-				}
+			hubProxy := v.GetHubCloudProxyURL()
+			if hubProxy != "" && strings.HasPrefix(streamURL, hubProxy) {
+				isProxied = true
 			}
 			res.Direct = !isProxied
 			res.StreamType = "mkv"
@@ -819,27 +901,13 @@ func (v *VidaraTier) tryResolveStream(ctx context.Context, vaID, shID, stID, hdh
 		log.Printf("[tier1] resolving stream for hdhub=%s", hdhubID)
 		if ext, err := v.ExtractHubCloud(resolveCtx, hdhubID); err == nil && ext != nil && ext.URL != "" {
 			log.Printf("[tier1] successfully extracted HubCloud stream: %s", ext.URL)
-			if workerClient != nil && workerClient.HasWorkers() {
-				log.Printf("[tier1] proxying extracted HubCloud stream via Cloudflare Worker...")
-				sess, err := workerClient.CreateSession(resolveCtx, proxy.SessionRequest{
-					URL:     ext.URL,
-					Headers: ext.Headers,
-					VideoID: strconv.Itoa(tmdbID),
-					Type:    mediaType,
-				})
-				if err == nil && sess != nil && sess.PlaybackURL != "" {
-					pURL := sess.PlaybackURL
-					if strings.Contains(strings.ToLower(ext.URL), ".mkv") && strings.HasSuffix(pURL, "/master.m3u8") {
-						pURL = strings.TrimSuffix(pURL, "/master.m3u8") + "/stream.mkv"
-					} else if strings.Contains(strings.ToLower(ext.URL), ".mp4") && strings.HasSuffix(pURL, "/master.m3u8") {
-						pURL = strings.TrimSuffix(pURL, "/master.m3u8") + "/video.mp4"
-					}
-					log.Printf("[tier1] successfully proxied HubCloud via Worker: %s", pURL)
-					return pURL, nil, "hubcloud"
-				}
-				if err != nil {
-					log.Printf("[tier1] Worker proxying failed for HubCloud: %v, using direct URL", err)
-				}
+			proxiedURL, pErr := v.ProxyHubCloudStream(resolveCtx, ext.URL)
+			if pErr == nil && proxiedURL != "" {
+				log.Printf("[tier1] successfully proxied HubCloud via dedicated Worker: %s", proxiedURL)
+				return proxiedURL, nil, "hubcloud"
+			}
+			if pErr != nil {
+				log.Printf("[tier1] HubCloud proxying failed: %v, using direct URL", pErr)
 			}
 			return ext.URL, ext.Headers, "hubcloud"
 		} else if err != nil {

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"vidara-api/models"
-	"vidara-api/proxy"
 )
 
 func TestVidaraTier_LoadDataAndLookup(t *testing.T) {
@@ -409,18 +408,22 @@ func TestVidaraTier_ExtractHubCloud_Mock(t *testing.T) {
 }
 
 func TestVidaraTier_HubCloud_WorkerProxy(t *testing.T) {
-	// Mock worker server
+	// Mock dedicated HubCloud worker server (movi-video-proxy)
 	workerCalled := false
 	var workerHost string
 	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		workerCalled = true
 		workerHost = r.Host
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(proxy.SessionResponse{
-			Success:     true,
-			SessionID:   "sess-hub",
-			PlaybackURL: "http://" + r.Host + "/session/sess-hub/master.m3u8",
-		})
+		if r.URL.Path == "/api/hide" && r.Method == http.MethodPost {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(HubCloudHideResponse{
+				StreamURL: "/stream/Movie.2026.1080p.mkv?token=mocktoken123",
+				Token:     "mocktoken123",
+			})
+			return
+		}
+		http.NotFound(w, r)
 	}))
 	defer workerServer.Close()
 
@@ -443,8 +446,7 @@ func TestVidaraTier_HubCloud_WorkerProxy(t *testing.T) {
 	defer driveServer.Close()
 
 	tier := NewVidaraTier("https://vidara.to", "https://streamtape.com", 5*time.Second)
-	wc := proxy.NewWorkerClient([]string{workerServer.URL}, "", 2*time.Second)
-	tier.SetWorkerClient(wc)
+	tier.SetHubCloudProxyURL(workerServer.URL)
 
 	// Add test movie with HDHub pointing to mock driveServer
 	tier.movieIndex[77701] = MovieRecord{
@@ -467,7 +469,7 @@ func TestVidaraTier_HubCloud_WorkerProxy(t *testing.T) {
 		t.Errorf("expected worker to be called for HubCloud stream proxying")
 	}
 
-	expectedURL := "http://" + workerHost + "/session/sess-hub/stream.mkv"
+	expectedURL := "http://" + workerHost + "/stream/Movie.2026.1080p.mkv?token=mocktoken123"
 	if res.URL != expectedURL {
 		t.Errorf("expected proxied URL %q, got %q", expectedURL, res.URL)
 	}
@@ -523,6 +525,20 @@ func TestVidaraTier_ExtractStreamTape_Live(t *testing.T) {
 	}
 	if !strings.Contains(res.URL, "stream=1") {
 		t.Errorf("expected stream=1 in URL, got: %s", res.URL)
+	}
+}
+
+func TestVidaraTier_ProxyHubCloudStream_Live(t *testing.T) {
+	tier := NewVidaraTier("", "", 10*time.Second)
+	rawURL := "https://701ab416771ea1b49a24683d35a33206.r2.cloudflarestorage.com/hub/The.Strangers.Chapter.3.2026.1080p.10Bit.BluRay.Hindi.2.0-English.5.1.HEVC.x265-HDHub4u.Ms.mkv?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=9117075ae9ab2bd2c1b64fc58debeee0%2F20261103%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20261103T065600Z&X-Amz-Expires=18000&X-Amz-SignedHeaders=host&response-content-disposition=attachment%3B%20filename%3D%22The.Strangers.Chapter.3.2026.1080p.10Bit.BluRay.Hindi.2.0-English.5.1.HEVC.x265-HDHub4u.Ms.mkv%22&X-Amz-Signature=1c9409ed89f529a4b952156330cc7e37e73ce581c868676e71a460d0150b43f8"
+
+	proxied, err := tier.ProxyHubCloudStream(context.Background(), rawURL)
+	if err != nil {
+		t.Fatalf("ProxyHubCloudStream failed: %v", err)
+	}
+	t.Logf("Successfully proxied via live worker: %s", proxied)
+	if !strings.HasPrefix(proxied, "https://proxyservr.kineflex-netflex.workers.dev/stream/") {
+		t.Fatalf("expected stream URL prefix, got: %s", proxied)
 	}
 }
 
