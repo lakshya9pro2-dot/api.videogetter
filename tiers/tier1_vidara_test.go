@@ -447,6 +447,7 @@ func TestVidaraTier_HubCloud_WorkerProxy(t *testing.T) {
 
 	tier := NewVidaraTier("https://vidara.to", "https://streamtape.com", 5*time.Second)
 	tier.SetHubCloudProxyURL(workerServer.URL)
+	tier.SetAutoProxyHubCloud(true)
 
 	// Add test movie with HDHub pointing to mock driveServer
 	tier.movieIndex[77701] = MovieRecord{

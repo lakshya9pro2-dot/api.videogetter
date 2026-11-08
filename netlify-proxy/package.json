@@ -1,0 +1,26 @@
+{
+  "name": "netlify-serverless-proxy",
+  "version": "1.0.0",
+  "description": "Netlify Serverless HLS & Video Streaming Proxy with Session Management and Streamtape/StreamHG Extraction",
+  "type": "module",
+  "main": "src/index.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node server.mjs",
+    "test": "node --test test/proxy.test.mjs"
+  },
+  "keywords": [
+    "netlify",
+    "serverless",
+    "proxy",
+    "hls",
+    "m3u8",
+    "streamtape",
+    "streamhg",
+    "streaming"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "ISC"
+}

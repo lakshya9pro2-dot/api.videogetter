@@ -1,0 +1,26 @@
+[build]
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Direct all api/session/extract traffic to the proxy serverless function
+[[redirects]]
+  from = "/session/*"
+  to = "/.netlify/functions/proxy"
+  status = 200
+
+[[redirects]]
+  from = "/extract/*"
+  to = "/.netlify/functions/proxy"
+  status = 200
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/proxy"
+  status = 200
+
+[[redirects]]
+  from = "/health"
+  to = "/.netlify/functions/proxy"
+  status = 200

@@ -347,7 +347,7 @@ func TestAPI_MovieWithWorkerProxy_ReplacesURL_AndClearsHeaders(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/api/movie/550")
+	resp, err := http.Get(server.URL + "/api/movie/550?web")
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
@@ -417,7 +417,7 @@ func TestAPI_MovieWithWorkerFailover(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/api/movie/550")
+	resp, err := http.Get(server.URL + "/api/movie/550?web")
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestAPI_MovieWithAllWorkersFailing_Returns502(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/api/movie/550")
+	resp, err := http.Get(server.URL + "/api/movie/550?web")
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
@@ -518,7 +518,7 @@ func TestAPI_M3UWithWorkerProxy(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/api/movie/550?format=m3u")
+	resp, err := http.Get(server.URL + "/api/movie/550?format=m3u&web")
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
@@ -659,7 +659,28 @@ func TestAPI_HubCloud_ProxiedViaWorker(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/api/movie/999123")
+	// 1. Normal mode (without ?web): HubCloud is NOT proxied (direct URL returned)
+	respNorm, err := http.Get(server.URL + "/api/movie/999123")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer respNorm.Body.Close()
+
+	if respNorm.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", respNorm.StatusCode)
+	}
+	if hubCloudWorkerCalled {
+		t.Errorf("HubCloud worker should NOT be called in normal mode without ?web")
+	}
+
+	var dataNorm map[string]interface{}
+	_ = json.NewDecoder(respNorm.Body).Decode(&dataNorm)
+	if dataNorm["url"] != r2RealURL {
+		t.Errorf("expected direct URL %q in normal mode, got: %v", r2RealURL, dataNorm["url"])
+	}
+
+	// 2. Web mode (with ?web): HubCloud IS proxied via dedicated worker
+	resp, err := http.Get(server.URL + "/api/movie/999123?web")
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
@@ -673,7 +694,7 @@ func TestAPI_HubCloud_ProxiedViaWorker(t *testing.T) {
 		t.Errorf("Generic HLS worker should NOT be called for HubCloud streams!")
 	}
 	if !hubCloudWorkerCalled {
-		t.Errorf("Dedicated HubCloud proxy worker SHOULD be called for HubCloud streams!")
+		t.Errorf("Dedicated HubCloud proxy worker SHOULD be called for HubCloud streams in ?web mode!")
 	}
 
 	var data map[string]interface{}

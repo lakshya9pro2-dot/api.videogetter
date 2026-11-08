@@ -127,9 +127,10 @@ type VidaraTier struct {
 	tvIndex       map[int]map[int]map[int]TVEpisodeRecord // tmdbID -> season -> episode -> record
 	vidaraBase    string
 	streamBase       string
-	streamHGBase     string
-	hubcloudProxyURL string
-	workerClient     *proxy.WorkerClient
+	streamHGBase      string
+	hubcloudProxyURL  string
+	autoProxyHubCloud bool
+	workerClient      *proxy.WorkerClient
 	client        *http.Client
 	noRedirClient *http.Client
 	loadedSources []string
@@ -183,6 +184,13 @@ func (v *VidaraTier) SetHubCloudProxyURL(urlStr string) {
 	if cleaned != "" {
 		v.hubcloudProxyURL = cleaned
 	}
+}
+
+// SetAutoProxyHubCloud sets whether Tier 1 should automatically proxy HubCloud streams in tryResolveStream (default: false).
+func (v *VidaraTier) SetAutoProxyHubCloud(enabled bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.autoProxyHubCloud = enabled
 }
 
 // GetHubCloudProxyURL returns the configured HubCloud proxy URL or the default worker URL.
@@ -833,7 +841,7 @@ func (v *VidaraTier) ResolveTV(ctx context.Context, tmdbID, season, episode int)
 // For StreamHG and Streamtape: delegates extraction to the Cloudflare Worker when configured
 // so extraction and playback proxying share the exact same Worker IP (defeating Same-IP locks).
 func (v *VidaraTier) tryResolveStream(ctx context.Context, vaID, shID, stID, hdhubID string, tmdbID int, mediaType string) (string, map[string]string, string) {
-	resolveCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	resolveCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 
 	v.mu.RLock()
@@ -901,13 +909,19 @@ func (v *VidaraTier) tryResolveStream(ctx context.Context, vaID, shID, stID, hdh
 		log.Printf("[tier1] resolving stream for hdhub=%s", hdhubID)
 		if ext, err := v.ExtractHubCloud(resolveCtx, hdhubID); err == nil && ext != nil && ext.URL != "" {
 			log.Printf("[tier1] successfully extracted HubCloud stream: %s", ext.URL)
-			proxiedURL, pErr := v.ProxyHubCloudStream(resolveCtx, ext.URL)
-			if pErr == nil && proxiedURL != "" {
-				log.Printf("[tier1] successfully proxied HubCloud via dedicated Worker: %s", proxiedURL)
-				return proxiedURL, nil, "hubcloud"
-			}
-			if pErr != nil {
-				log.Printf("[tier1] HubCloud proxying failed: %v, using direct URL", pErr)
+			v.mu.RLock()
+			autoProxy := v.autoProxyHubCloud
+			v.mu.RUnlock()
+
+			if autoProxy {
+				proxiedURL, pErr := v.ProxyHubCloudStream(resolveCtx, ext.URL)
+				if pErr == nil && proxiedURL != "" {
+					log.Printf("[tier1] successfully proxied HubCloud via dedicated Worker: %s", proxiedURL)
+					return proxiedURL, nil, "hubcloud"
+				}
+				if pErr != nil {
+					log.Printf("[tier1] HubCloud proxying failed: %v, using direct URL", pErr)
+				}
 			}
 			return ext.URL, ext.Headers, "hubcloud"
 		} else if err != nil {

@@ -21,8 +21,8 @@ const DefaultRedirectURL = "https://api.kineflex.site/"
 // DefaultBackendAPIKey is the required secret key sent by api.kineflex.site.
 const DefaultBackendAPIKey = "lakshya9310081539@"
 
-// DefaultProxyWorkerURL is the primary Cloudflare Worker endpoint for HLS playback proxying.
-const DefaultProxyWorkerURL = "https://turbo-octo-succotash.kineflex-netflex.workers.dev"
+// DefaultProxyWorkerURL is the primary serverless proxy endpoint for HLS & MP4 playback proxying.
+const DefaultProxyWorkerURL = "https://kineflexvideoapi.netlify.app"
 
 // DefaultHubCloudProxyURL is the dedicated Cloudflare Worker for HubCloud streaming media proxying.
 const DefaultHubCloudProxyURL = "https://proxyservr.kineflex-netflex.workers.dev"
@@ -196,7 +196,7 @@ func LoadConfig() *Config {
 		}
 	}
 	if len(proxyWorkerURLs) == 0 {
-		for _, envKey := range []string{"PROXY_WORKER_URL_1", "PROXY_WORKER_URL_2", "PROXY_WORKER_URL_3"} {
+		for _, envKey := range []string{"PROXY_WORKER_URL_1", "PROXY_WORKER_URL_2", "PROXY_WORKER_URL_3", "CF_WORKERS_URL", "PROXY_URL"} {
 			if u := strings.TrimSpace(os.Getenv(envKey)); u != "" {
 				proxyWorkerURLs = append(proxyWorkerURLs, strings.TrimRight(u, "/"))
 			}
@@ -211,7 +211,7 @@ func LoadConfig() *Config {
 		proxyWorkerSecret = os.Getenv("WORKER_SECRET")
 	}
 
-	proxyWorkerTimeoutSec := 10
+	proxyWorkerTimeoutSec := 25
 	if secStr := os.Getenv("PROXY_WORKER_TIMEOUT_SECONDS"); secStr != "" {
 		if s, err := strconv.Atoi(secStr); err == nil && s > 0 {
 			proxyWorkerTimeoutSec = s

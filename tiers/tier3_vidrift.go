@@ -201,7 +201,7 @@ func (v *VidriftTier) resolveCineTVMovie(ctx context.Context, tmdbID int) (*mode
 	}
 
 	streamURL := data.URL
-	if strings.HasPrefix(streamURL, "http://filmin.a0p3.com") {
+	if strings.HasPrefix(streamURL, "http://") && (strings.Contains(streamURL, "a0p3.com") || strings.Contains(streamURL, "e6r4r1.com")) {
 		streamURL = "https://" + strings.TrimPrefix(streamURL, "http://")
 	}
 
@@ -268,7 +268,7 @@ func (v *VidriftTier) resolveCineTVTV(ctx context.Context, tmdbID, season, episo
 	}
 
 	streamURL := data.URL
-	if strings.HasPrefix(streamURL, "http://filmin.a0p3.com") {
+	if strings.HasPrefix(streamURL, "http://") && (strings.Contains(streamURL, "a0p3.com") || strings.Contains(streamURL, "e6r4r1.com")) {
 		streamURL = "https://" + strings.TrimPrefix(streamURL, "http://")
 	}
 

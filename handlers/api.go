@@ -30,6 +30,9 @@ type APIHandler struct {
 	workerClient        *proxy.WorkerClient
 	proxyFallbackDirect bool
 	httpClient          *http.Client
+	cache               *ResolutionCache
+	sf                  *SingleflightGroup
+	cacheTTL            time.Duration
 }
 
 // NewAPIHandler creates a new APIHandler instance.
@@ -39,6 +42,16 @@ func NewAPIHandler(res *resolver.CentralResolver, vidaraTier *tiers.VidaraTier, 
 		vidaraTier: vidaraTier,
 		tier3:      tier3,
 		httpClient: &http.Client{Timeout: timeout},
+		cache:      NewResolutionCache(),
+		sf:         NewSingleflightGroup(),
+		cacheTTL:   30 * time.Minute,
+	}
+}
+
+// ClearCache flushes the in-memory resolution cache.
+func (h *APIHandler) ClearCache() {
+	if h.cache != nil {
+		h.cache.Clear()
 	}
 }
 
@@ -48,24 +61,62 @@ func (h *APIHandler) SetWorkerClient(client *proxy.WorkerClient, fallbackDirect 
 	h.proxyFallbackDirect = fallbackDirect
 }
 
+// IsWebRequest returns true if the request query parameter contains ?web, ?web=1, ?web=true, etc.
+func IsWebRequest(r *http.Request) bool {
+	if r == nil || r.URL == nil {
+		return false
+	}
+	if r.URL.Query().Has("web") {
+		val := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("web")))
+		if val == "false" || val == "0" || val == "no" {
+			return false
+		}
+		return true
+	}
+	rawQ := strings.ToLower(r.URL.RawQuery)
+	if strings.Contains(rawQ, "web") {
+		return true
+	}
+	rawURI := strings.ToLower(r.URL.RequestURI())
+	if strings.Contains(rawURI, "?web") || strings.Contains(rawURI, "&web") {
+		return true
+	}
+	return false
+}
+
 // proxyResolvedResult requests a playback session from the configured Cloudflare Workers.
-// If successful, it replaces result.URL with the Worker playback URL and removes upstream Origin/Referer.
-func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.ResolutionResult, videoID string, mediaType string) error {
-	if h.workerClient == nil || !h.workerClient.HasWorkers() || result == nil || !result.Success || strings.TrimSpace(result.URL) == "" {
+// In normal mode (!isWeb), ONLY StreamHG and Streamtape are proxied via Worker.
+// Vidara, HubCloud, Direct Play, Tier 2, Tier 3, and Tier 4 are NOT proxied (direct stream URLs returned).
+// In web mode (isWeb == true, e.g. ?web), ALL sources are proxied through Workers (or HubCloud proxy).
+func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.ResolutionResult, videoID string, mediaType string, isWeb bool) error {
+	if result == nil || !result.Success || strings.TrimSpace(result.URL) == "" {
 		return nil
 	}
 
-	// Skip if URL is already a proxied Cloudflare Worker URL (e.g. from in-worker extraction of StreamHG or Streamtape)
-	for _, wURL := range h.workerClient.GetWorkerURLs() {
-		if strings.HasPrefix(result.URL, wURL) {
+	isStreamHG := result.Source == "streamhg" || strings.EqualFold(result.Source, "sh")
+	isStreamTape := result.Source == "streamtape" || strings.EqualFold(result.Source, "st")
+	isHubCloud := result.Source == "hubcloud" || strings.Contains(strings.ToLower(result.Source), "hubcloud")
+
+	// In normal mode (!isWeb), ONLY StreamHG and Streamtape are proxied.
+	// Vidara, HubCloud, Direct Play, Tier 2, Tier 3, and Tier 4 remain direct.
+	if !isWeb {
+		if !isStreamHG && !isStreamTape {
 			return nil
 		}
 	}
 
-	isHubCloud := result.Source == "hubcloud" || strings.Contains(strings.ToLower(result.Source), "hubcloud")
+	// Skip if URL is already a proxied Cloudflare Worker URL (e.g. from in-worker extraction of StreamHG or Streamtape)
+	if h.workerClient != nil {
+		for _, wURL := range h.workerClient.GetWorkerURLs() {
+			if strings.HasPrefix(result.URL, wURL) {
+				return nil
+			}
+		}
+	}
+
+	// HubCloud is exclusively proxied via its dedicated streaming proxy (https://proxyservr.kineflex-netflex.workers.dev).
+	// Never route HubCloud through generic HLS workerClient. Only proxied if in web mode.
 	if isHubCloud || strings.HasPrefix(result.URL, "https://proxyservr.kineflex-netflex.workers.dev") {
-		// HubCloud is exclusively proxied via its dedicated streaming proxy (https://proxyservr.kineflex-netflex.workers.dev).
-		// Never route HubCloud through generic HLS workerClient.
 		if isHubCloud && h.vidaraTier != nil && !strings.HasPrefix(result.URL, h.vidaraTier.GetHubCloudProxyURL()) {
 			if proxiedURL, err := h.vidaraTier.ProxyHubCloudStream(ctx, result.URL); err == nil && proxiedURL != "" {
 				result.URL = proxiedURL
@@ -75,9 +126,12 @@ func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.Res
 		return nil
 	}
 
-	// Direct MP4 / MKV streams do not require HLS proxying unless explicitly requested
-	if result.Direct || result.StreamType == "mp4" || result.StreamType == "mkv" ||
-		strings.Contains(strings.ToLower(result.URL), ".mp4") || strings.Contains(strings.ToLower(result.URL), ".mkv") {
+	// Direct local network storage files (private IPs or explicit local "direct" source)
+	if result.Source == "direct" || strings.Contains(result.URL, "192.168.") || strings.Contains(result.URL, "10.") || strings.Contains(result.URL, "127.0.0.1") || strings.Contains(result.URL, "localhost") {
+		return nil
+	}
+
+	if h.workerClient == nil || !h.workerClient.HasWorkers() {
 		return nil
 	}
 
@@ -167,6 +221,7 @@ func (h *APIHandler) HandleMovie(w http.ResponseWriter, r *http.Request) {
 	isM3U := strings.EqualFold(r.URL.Query().Get("format"), "m3u") ||
 		strings.Contains(rawID, ".m3u") ||
 		strings.Contains(rawID, "/playlist.m3u")
+	isWeb := IsWebRequest(r)
 
 	cleanedID := rawID
 	if idx := strings.Index(cleanedID, ".m3u"); idx != -1 {
@@ -213,7 +268,7 @@ func (h *APIHandler) HandleMovie(w http.ResponseWriter, r *http.Request) {
 		// Fallback: resolve movie via standard tiers and format into Extended M3U
 		result, err := h.resolver.ResolveMovie(ctx, tmdbID)
 		if err == nil && result != nil && result.Success && result.URL != "" {
-			_ = h.proxyResolvedResult(ctx, result, strconv.Itoa(tmdbID), "movie")
+			_ = h.proxyResolvedResult(ctx, result, strconv.Itoa(tmdbID), "movie", isWeb)
 			title := result.Title
 			if title == "" {
 				title = fmt.Sprintf("Movie %d", tmdbID)
@@ -242,34 +297,62 @@ func (h *APIHandler) HandleMovie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cacheKey := fmt.Sprintf("movie:%d:web=%t", tmdbID, isWeb)
+	noCache := r.URL.Query().Has("refresh") || r.URL.Query().Has("no_cache")
+
+	if !noCache && !isM3U {
+		if cachedResult, ok := h.cache.Get(cacheKey); ok && cachedResult != nil {
+			log.Printf("[cache hit] movie %d (web=%t)", tmdbID, isWeb)
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Cache", "HIT")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(cachedResult)
+			return
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	result, err := h.resolver.ResolveMovie(ctx, tmdbID)
-	if err != nil || result == nil || !result.Success {
+	resVal, err := h.sf.Do(cacheKey, func() (*models.ResolutionResult, error) {
+		res, rErr := h.resolver.ResolveMovie(ctx, tmdbID)
+		if rErr != nil || res == nil || !res.Success {
+			return res, rErr
+		}
+		if pErr := h.proxyResolvedResult(ctx, res, strconv.Itoa(tmdbID), "movie", isWeb); pErr != nil {
+			return nil, pErr
+		}
+		return res, nil
+	})
+
+	if err != nil || resVal == nil || !resVal.Success {
+		if err != nil && (resVal == nil || !resVal.Success) {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"tmdb_id": tmdbID,
+				"error":   "proxy_workers_failed",
+				"message": err.Error(),
+			})
+			return
+		}
 		w.WriteHeader(http.StatusNotFound)
-		if result == nil {
-			result = &models.ResolutionResult{
+		if resVal == nil {
+			resVal = &models.ResolutionResult{
 				Success: false,
 				TmdbID:  tmdbID,
 				Error:   "source_not_found",
 			}
 		}
-		_ = json.NewEncoder(w).Encode(result)
+		_ = json.NewEncoder(w).Encode(resVal)
 		return
 	}
 
-	if pErr := h.proxyResolvedResult(ctx, result, strconv.Itoa(tmdbID), "movie"); pErr != nil {
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"tmdb_id": tmdbID,
-			"error":   "proxy_workers_failed",
-			"message": pErr.Error(),
-		})
-		return
+	if !noCache {
+		h.cache.Set(cacheKey, resVal, h.cacheTTL)
 	}
 
+	w.Header().Set("X-Cache", "MISS")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(resVal)
 }
 
 // HandleTV handles GET /api/tv/{tmdb_id}/{season_number}/{episode_number}.
@@ -284,6 +367,7 @@ func (h *APIHandler) HandleTV(w http.ResponseWriter, r *http.Request) {
 	isM3U := strings.EqualFold(r.URL.Query().Get("format"), "m3u") ||
 		strings.Contains(path, ".m3u") ||
 		strings.Contains(path, "/playlist.m3u")
+	isWeb := IsWebRequest(r)
 
 	cleanedPath := path
 	if idx := strings.Index(cleanedPath, ".m3u"); idx != -1 {
@@ -348,7 +432,7 @@ func (h *APIHandler) HandleTV(w http.ResponseWriter, r *http.Request) {
 		// Fallback: resolve TV via standard tiers and format into Extended M3U
 		result, err := h.resolver.ResolveTV(ctx, tmdbID, season, episode)
 		if err == nil && result != nil && result.Success && result.URL != "" {
-			_ = h.proxyResolvedResult(ctx, result, fmt.Sprintf("%d_S%dE%d", tmdbID, season, episode), "tv")
+			_ = h.proxyResolvedResult(ctx, result, fmt.Sprintf("%d_S%dE%d", tmdbID, season, episode), "tv", isWeb)
 			title := result.Title
 			if title == "" {
 				title = fmt.Sprintf("TV %d", tmdbID)
@@ -380,12 +464,49 @@ func (h *APIHandler) HandleTV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cacheKey := fmt.Sprintf("tv:%d:%d:%d:web=%t", tmdbID, season, episode, isWeb)
+	noCache := r.URL.Query().Has("refresh") || r.URL.Query().Has("no_cache")
+
+	if !noCache && !isM3U {
+		if cachedResult, ok := h.cache.Get(cacheKey); ok && cachedResult != nil {
+			log.Printf("[cache hit] TV %d S%dE%d (web=%t)", tmdbID, season, episode, isWeb)
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Cache", "HIT")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(cachedResult)
+			return
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	result, err := h.resolver.ResolveTV(ctx, tmdbID, season, episode)
-	if err != nil || result == nil || !result.Success {
+	resVal, err := h.sf.Do(cacheKey, func() (*models.ResolutionResult, error) {
+		res, rErr := h.resolver.ResolveTV(ctx, tmdbID, season, episode)
+		if rErr != nil || res == nil || !res.Success {
+			return res, rErr
+		}
+		videoID := fmt.Sprintf("%d_S%dE%d", tmdbID, season, episode)
+		if pErr := h.proxyResolvedResult(ctx, res, videoID, "tv", isWeb); pErr != nil {
+			return nil, pErr
+		}
+		return res, nil
+	})
+
+	if err != nil || resVal == nil || !resVal.Success {
+		if err != nil && (resVal == nil || !resVal.Success) {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"tmdb_id": tmdbID,
+				"season":  season,
+				"episode": episode,
+				"error":   "proxy_workers_failed",
+				"message": err.Error(),
+			})
+			return
+		}
 		w.WriteHeader(http.StatusNotFound)
-		if result == nil {
-			result = &models.ResolutionResult{
+		if resVal == nil {
+			resVal = &models.ResolutionResult{
 				Success: false,
 				TmdbID:  tmdbID,
 				Season:  &season,
@@ -393,25 +514,17 @@ func (h *APIHandler) HandleTV(w http.ResponseWriter, r *http.Request) {
 				Error:   "source_not_found",
 			}
 		}
-		_ = json.NewEncoder(w).Encode(result)
+		_ = json.NewEncoder(w).Encode(resVal)
 		return
 	}
 
-	if pErr := h.proxyResolvedResult(ctx, result, fmt.Sprintf("%d_S%dE%d", tmdbID, season, episode), "tv"); pErr != nil {
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"tmdb_id": tmdbID,
-			"season":  season,
-			"episode": episode,
-			"error":   "proxy_workers_failed",
-			"message": pErr.Error(),
-		})
-		return
+	if !noCache {
+		h.cache.Set(cacheKey, resVal, h.cacheTTL)
 	}
 
+	w.Header().Set("X-Cache", "MISS")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(resVal)
 }
 
 // HandleResolve handles GET / POST /api/resolve (preserving app.py functionality).
