@@ -923,11 +923,15 @@ func (h *APIHandler) HandleReload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	movies, tv := h.vidaraTier.GetCounts()
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	respData := map[string]interface{}{
 		"success":     true,
 		"message":     "dataset successfully reloaded",
 		"movies":      movies,
 		"tv_episodes": tv,
-	})
+	}
+	if hubBase := h.vidaraTier.GetHubCloudBaseURL(); hubBase != "" {
+		respData["hubcloud_domain"] = hubBase
+	}
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(respData)
 }

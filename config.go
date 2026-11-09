@@ -27,6 +27,12 @@ const DefaultProxyWorkerURL = "https://kineflexvideoapi.netlify.app"
 // DefaultHubCloudProxyURL is the dedicated Cloudflare Worker for HubCloud streaming media proxying.
 const DefaultHubCloudProxyURL = "https://proxyservr.kineflex-netflex.workers.dev"
 
+// DefaultHubCloudBaseURL is the default base URL for HubCloud drive streaming.
+const DefaultHubCloudBaseURL = "https://hubcloud.pw"
+
+// DefaultDomainsJSONURL is the remote API source for dynamic upstream provider domains.
+const DefaultDomainsJSONURL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json"
+
 // DefaultCineTVBaseURL is the default base URL for the CineTV (Netlify) resolver in Tier 3.
 const DefaultCineTVBaseURL = "https://cinetvtest.netlify.app"
 // ============================================================================
@@ -60,6 +66,8 @@ type Config struct {
 	ProxyWorkerTimeout    time.Duration // Timeout per worker attempt
 	ProxyFallbackDirect   bool          // Fallback to direct stream URL if all workers fail
 	HubCloudProxyURL      string        // Dedicated Cloudflare Worker for HubCloud streaming (e.g. movi-video-proxy)
+	HubCloudBaseURL       string        // Dynamic or default base URL for HubCloud drive links
+	DomainsURL            string        // Remote URL for fetching dynamic upstream domains (domains.json)
 }
 
 // LoadConfig initializes Config from environment variables or sensible defaults.
@@ -231,6 +239,22 @@ func LoadConfig() *Config {
 		hubCloudProxyURL = DefaultHubCloudProxyURL
 	}
 
+	hubCloudBaseURL := strings.TrimSpace(os.Getenv("HUBCLOUD_BASE_URL"))
+	if hubCloudBaseURL == "" {
+		hubCloudBaseURL = os.Getenv("HUBCLOUD_URL")
+	}
+	if hubCloudBaseURL == "" {
+		hubCloudBaseURL = DefaultHubCloudBaseURL
+	}
+
+	domainsURL := strings.TrimSpace(os.Getenv("DOMAINS_JSON_URL"))
+	if domainsURL == "" {
+		domainsURL = os.Getenv("DOMAINS_URL")
+	}
+	if domainsURL == "" {
+		domainsURL = DefaultDomainsJSONURL
+	}
+
 	return &Config{
 		Port:            port,
 		VidaraRemoteURL: vidaraRemoteURL,
@@ -259,5 +283,7 @@ func LoadConfig() *Config {
 		ProxyWorkerTimeout:    time.Duration(proxyWorkerTimeoutSec) * time.Second,
 		ProxyFallbackDirect:   proxyFallbackDirect,
 		HubCloudProxyURL:      hubCloudProxyURL,
+		HubCloudBaseURL:       hubCloudBaseURL,
+		DomainsURL:            domainsURL,
 	}
 }

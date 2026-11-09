@@ -31,6 +31,12 @@ const DefaultStreamHGBase = "https://hanerix.com"
 // DefaultHubCloudProxyWorkerURL is the dedicated Cloudflare Worker for HubCloud streaming media proxying.
 const DefaultHubCloudProxyWorkerURL = "https://proxyservr.kineflex-netflex.workers.dev"
 
+// DefaultHubCloudBase is the default base URL for HubCloud drive streaming.
+const DefaultHubCloudBase = "https://hubcloud.pw"
+
+// DefaultDomainsJSONURL is the remote API source for dynamic upstream provider domains.
+const DefaultDomainsJSONURL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json"
+
 var (
 	streamhgDomains = map[string]bool{
 		"streamhg.com":   true,
@@ -122,18 +128,20 @@ type TVEpisodeRecord struct {
 
 // VidaraTier represents Tier 1 implementation with in-memory indexes and extractors.
 type VidaraTier struct {
-	mu            sync.RWMutex
-	movieIndex    map[int]MovieRecord
-	tvIndex       map[int]map[int]map[int]TVEpisodeRecord // tmdbID -> season -> episode -> record
-	vidaraBase    string
-	streamBase       string
+	mu                sync.RWMutex
+	movieIndex        map[int]MovieRecord
+	tvIndex           map[int]map[int]map[int]TVEpisodeRecord // tmdbID -> season -> episode -> record
+	vidaraBase        string
+	streamBase        string
 	streamHGBase      string
+	hubcloudBase      string
+	domainsURL        string
 	hubcloudProxyURL  string
 	autoProxyHubCloud bool
 	workerClient      *proxy.WorkerClient
-	client        *http.Client
-	noRedirClient *http.Client
-	loadedSources []string
+	client            *http.Client
+	noRedirClient     *http.Client
+	loadedSources     []string
 }
 
 // NewVidaraTier creates a new Tier 1 resolver.
@@ -146,11 +154,13 @@ func NewVidaraTier(vidaraBase, streamtapeBase string, timeout time.Duration) *Vi
 	}
 
 	return &VidaraTier{
-		movieIndex:   make(map[int]MovieRecord),
-		tvIndex:      make(map[int]map[int]map[int]TVEpisodeRecord),
+		movieIndex:       make(map[int]MovieRecord),
+		tvIndex:          make(map[int]map[int]map[int]TVEpisodeRecord),
 		vidaraBase:       strings.TrimRight(vidaraBase, "/"),
 		streamBase:       strings.TrimRight(streamtapeBase, "/"),
 		streamHGBase:     DefaultStreamHGBase,
+		hubcloudBase:     DefaultHubCloudBase,
+		domainsURL:       DefaultDomainsJSONURL,
 		hubcloudProxyURL: DefaultHubCloudProxyWorkerURL,
 		client:           &http.Client{Timeout: timeout},
 		noRedirClient: &http.Client{
@@ -167,6 +177,109 @@ func (v *VidaraTier) SetStreamHGBase(base string) {
 	if base != "" {
 		v.streamHGBase = strings.TrimRight(strings.TrimSpace(base), "/")
 	}
+}
+
+// SetHubCloudBaseURL sets the base URL for HubCloud drive streaming.
+func (v *VidaraTier) SetHubCloudBaseURL(base string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	cleaned := strings.TrimRight(strings.TrimSpace(base), "/")
+	if cleaned != "" {
+		v.hubcloudBase = cleaned
+	}
+}
+
+// GetHubCloudBaseURL returns the configured HubCloud base URL.
+func (v *VidaraTier) GetHubCloudBaseURL() string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	if v.hubcloudBase == "" {
+		return DefaultHubCloudBase
+	}
+	return v.hubcloudBase
+}
+
+// SetDomainsURL sets the remote URL for fetching dynamic upstream provider domains.
+func (v *VidaraTier) SetDomainsURL(urlStr string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	cleaned := strings.TrimSpace(urlStr)
+	if cleaned != "" {
+		v.domainsURL = cleaned
+	}
+}
+
+// GetDomainsURL returns the configured domains JSON URL.
+func (v *VidaraTier) GetDomainsURL() string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	if v.domainsURL == "" {
+		return DefaultDomainsJSONURL
+	}
+	return v.domainsURL
+}
+
+// UpdateHubCloudDomain fetches domains.json and dynamically updates the HubCloud base URL.
+func (v *VidaraTier) UpdateHubCloudDomain(ctx context.Context) error {
+	domainsURL := v.GetDomainsURL()
+	if domainsURL == "" {
+		return nil
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, "GET", domainsURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create domains request: %w", err)
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 vidara-api/1.0")
+	req.Header.Set("Accept", "application/json")
+
+	client := v.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to fetch domains.json: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("domains.json returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read domains.json body: %w", err)
+	}
+
+	var domainsMap map[string]string
+	if err := json.Unmarshal(body, &domainsMap); err != nil {
+		return fmt.Errorf("failed to parse domains.json: %w", err)
+	}
+
+	var hubcloudVal string
+	for k, val := range domainsMap {
+		if strings.EqualFold(k, "hubcloud") {
+			hubcloudVal = strings.TrimRight(strings.TrimSpace(val), "/")
+			break
+		}
+	}
+
+	if hubcloudVal == "" {
+		return fmt.Errorf("key 'hubcloud' not found or empty in domains.json")
+	}
+
+	if !strings.HasPrefix(hubcloudVal, "http://") && !strings.HasPrefix(hubcloudVal, "https://") {
+		hubcloudVal = "https://" + hubcloudVal
+	}
+
+	v.SetHubCloudBaseURL(hubcloudVal)
+	log.Printf("[tier1] dynamically updated HubCloud domain to: %s", hubcloudVal)
+	return nil
 }
 
 // SetWorkerClient sets the Cloudflare Worker client for in-worker extraction of IP-locked streams.
@@ -320,8 +433,14 @@ func ParseIDsFromString(s string) (stID, vaID string) {
 	return stID, vaID
 }
 
-// LoadData loads and indexes the Vidara dataset from remote URLs or local disk.
+// LoadData loads and indexes the Vidara dataset from remote URLs or local disk,
+// and refreshes the dynamic HubCloud domain from domains.json.
 func (v *VidaraTier) LoadData(paths ...string) error {
+	// Dynamically refresh HubCloud domain from domains.json on every load/reload
+	if err := v.UpdateHubCloudDomain(context.Background()); err != nil {
+		log.Printf("[tier1] notice: dynamic HubCloud domain update: %v (keeping: %s)", err, v.GetHubCloudBaseURL())
+	}
+
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
@@ -1554,9 +1673,32 @@ func (v *VidaraTier) ExtractHubCloud(ctx context.Context, urlOrID string) (*mode
 		return nil, fmt.Errorf("empty hubcloud id/url")
 	}
 
+	hubBase := v.GetHubCloudBaseURL()
+	if hubBase == "" {
+		hubBase = DefaultHubCloudBase
+	}
+
 	realURL := urlOrID
 	if !strings.HasPrefix(realURL, "http://") && !strings.HasPrefix(realURL, "https://") {
-		realURL = "https://hubcloud.ist/drive/" + urlOrID
+		cleanID := strings.TrimLeft(urlOrID, "/")
+		if strings.HasPrefix(cleanID, "drive/") {
+			realURL = hubBase + "/" + cleanID
+		} else {
+			realURL = hubBase + "/drive/" + cleanID
+		}
+	} else {
+		// If realURL contains a hubcloud domain (e.g. hubcloud.ist, hubcloud.club, etc.),
+		// rewrite scheme and host to the active dynamic hubBase to avoid extra redirects.
+		if u, err := url.Parse(realURL); err == nil {
+			hostLower := strings.ToLower(u.Hostname())
+			if strings.Contains(hostLower, "hubcloud") {
+				if parsedBase, err := url.Parse(hubBase); err == nil {
+					u.Scheme = parsedBase.Scheme
+					u.Host = parsedBase.Host
+					realURL = u.String()
+				}
+			}
+		}
 	}
 
 	client := v.client
@@ -1732,7 +1874,11 @@ func (v *VidaraTier) ExtractAny(ctx context.Context, targetURL string) (*models.
 	if streamtapeDomains[domain] || strings.Contains(domain, "streamtape") {
 		return v.ExtractStreamTape(ctx, targetURL)
 	}
-	if strings.Contains(domain, "hubcloud") || strings.Contains(domain, "hdhub") || strings.Contains(domain, "gamerxyt") {
+	hubBaseHost := ""
+	if hubBaseParsed, err := url.Parse(v.GetHubCloudBaseURL()); err == nil {
+		hubBaseHost = strings.ToLower(hubBaseParsed.Hostname())
+	}
+	if strings.Contains(domain, "hubcloud") || strings.Contains(domain, "hdhub") || strings.Contains(domain, "gamerxyt") || (hubBaseHost != "" && domain == hubBaseHost) {
 		return v.ExtractHubCloud(ctx, targetURL)
 	}
 	if streamhgDomains[domain] ||

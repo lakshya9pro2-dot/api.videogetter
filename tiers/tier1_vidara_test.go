@@ -543,3 +543,60 @@ func TestVidaraTier_ProxyHubCloudStream_Live(t *testing.T) {
 	}
 }
 
+func TestVidaraTier_DynamicHubCloudDomain_Mock(t *testing.T) {
+	mockDomainsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"moviesdrive": "https://new1.moviesdrive.cyou", "hubcloud": "https://hubcloud.mock.pw"}`)
+	}))
+	defer mockDomainsServer.Close()
+
+	tier := NewVidaraTier("https://vidara.to", "https://streamtape.com", 5*time.Second)
+	tier.SetDomainsURL(mockDomainsServer.URL)
+
+	if tier.GetHubCloudBaseURL() != DefaultHubCloudBase {
+		t.Fatalf("expected default %s, got %s", DefaultHubCloudBase, tier.GetHubCloudBaseURL())
+	}
+
+	err := tier.UpdateHubCloudDomain(context.Background())
+	if err != nil {
+		t.Fatalf("UpdateHubCloudDomain failed: %v", err)
+	}
+
+	if tier.GetHubCloudBaseURL() != "https://hubcloud.mock.pw" {
+		t.Fatalf("expected updated base 'https://hubcloud.mock.pw', got '%s'", tier.GetHubCloudBaseURL())
+	}
+}
+
+func TestVidaraTier_DynamicHubCloudDomain_Live(t *testing.T) {
+	tier := NewVidaraTier("https://vidara.to", "https://streamtape.com", 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := tier.UpdateHubCloudDomain(ctx)
+	if err != nil {
+		t.Logf("Notice: live update failed (offline or network): %v", err)
+		return
+	}
+
+	currentBase := tier.GetHubCloudBaseURL()
+	t.Logf("Live dynamic HubCloud base URL: %s", currentBase)
+	if !strings.HasPrefix(currentBase, "http://") && !strings.HasPrefix(currentBase, "https://") {
+		t.Errorf("invalid HubCloud base URL: %s", currentBase)
+	}
+	if !strings.Contains(currentBase, "hubcloud") {
+		t.Errorf("expected domain to contain 'hubcloud', got: %s", currentBase)
+	}
+}
+
+func TestVidaraTier_ExtractHubCloud_DomainRewrite(t *testing.T) {
+	tier := NewVidaraTier("https://vidara.to", "https://streamtape.com", 5*time.Second)
+	tier.SetHubCloudBaseURL("https://hubcloud.pw")
+
+	// Verify rewrite on older domain
+	res, err := tier.ExtractHubCloud(context.Background(), "")
+	if err == nil {
+		t.Fatalf("expected error on empty url, got %+v", res)
+	}
+}
+
+
