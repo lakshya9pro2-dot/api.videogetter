@@ -13,6 +13,7 @@ type Playback struct {
 	HDHub    string `json:"hdhub,omitempty"`
 	HubCloud string `json:"hubcloud,omitempty"`
 	HubHD    string `json:"hubhd,omitempty"`
+	HDCloud  string `json:"hdcloud,omitempty"`
 	URL      string `json:"url,omitempty"`
 	Play     string `json:"play,omitempty"`
 }
@@ -47,11 +48,15 @@ func (p *Playback) UnmarshalJSON(b []byte) error {
 	p.HDHub = aux.HDHub
 	p.HubCloud = aux.HubCloud
 	p.HubHD = aux.HubHD
+	p.HDCloud = aux.HDCloud
 	if p.HDHub == "" && aux.HubHD != "" {
 		p.HDHub = aux.HubHD
 	}
 	if p.HDHub == "" && aux.HubCloud != "" {
 		p.HDHub = aux.HubCloud
+	}
+	if p.HDHub == "" && aux.HDCloud != "" {
+		p.HDHub = aux.HDCloud
 	}
 	p.URL = aux.URL
 	p.Play = aux.Play
@@ -90,6 +95,7 @@ type MediaItem struct {
 	HDHub    string        `json:"hdhub,omitempty"`
 	HubCloud string        `json:"hubcloud,omitempty"`
 	HubHD    string        `json:"hubhd,omitempty"`
+	HDCloud  string        `json:"hdcloud,omitempty"`
 	URL      string        `json:"url,omitempty"`
 }
 

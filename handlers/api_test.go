@@ -301,6 +301,36 @@ func TestTVEndpoints_AllTiers(t *testing.T) {
 	}
 }
 
+func TestTVEndpoint_259909_S2E2(t *testing.T) {
+	ts, _ := setupTestServer()
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/tv/259909/2/2")
+	if err != nil {
+		t.Fatalf("failed GET /api/tv/259909/2/2: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
+	}
+
+	var res models.ResolutionResult
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		t.Fatalf("failed decoding response: %v", err)
+	}
+
+	if !res.Success || res.Tier != 1 || *res.Season != 2 || *res.Episode != 2 {
+		t.Fatalf("unexpected TV 259909 S2E2 resolution result: %+v", res)
+	}
+	if !strings.Contains(strings.ToLower(res.Source), "hubcloud") {
+		t.Errorf("expected hubcloud source, got %s", res.Source)
+	}
+	if !strings.HasPrefix(res.URL, "http://") && !strings.HasPrefix(res.URL, "https://") {
+		t.Errorf("expected stream URL, got %s", res.URL)
+	}
+}
+
 // ============================================================================
 // PART C: CLOUDFLARE WORKER PROXY INTEGRATION TESTS IN GO
 // ============================================================================

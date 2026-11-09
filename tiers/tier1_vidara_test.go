@@ -599,4 +599,45 @@ func TestVidaraTier_ExtractHubCloud_DomainRewrite(t *testing.T) {
 	}
 }
 
+func TestVidaraTier_ResolveTV_259909_S2E2(t *testing.T) {
+	tier := NewVidaraTier("https://vidara.to", "https://streamtape.com", 20*time.Second)
+	err := tier.LoadData("data/vidara.json", "../data/vidara.json")
+	if err != nil {
+		t.Fatalf("failed to load dataset: %v", err)
+	}
+
+	// 1. Verify TV 259909 S2E2 exists in index
+	rec, found := tier.FindTV(259909, 2, 2)
+	if !found {
+		t.Fatalf("TV 259909 S2E2 not found in index")
+	}
+	t.Logf("Found TV record: ID=%d, Title=%s, HDHub=%s", rec.ID, rec.Title, rec.Play.HDHub)
+	if rec.Play.HDHub != "rnhevmogcyvmhav" {
+		t.Fatalf("expected HDHub 'rnhevmogcyvmhav', got %q", rec.Play.HDHub)
+	}
+
+	// 2. Resolve TV 259909 S2E2 live
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+
+	res, err := tier.ResolveTV(ctx, 259909, 2, 2)
+	if err != nil {
+		t.Fatalf("ResolveTV returned error: %v", err)
+	}
+	if res == nil || !res.Success {
+		t.Fatalf("expected successful resolution, got: %+v", res)
+	}
+
+	t.Logf("Resolved TV 259909 S2E2: Success=%v, Source=%s, URL=%s", res.Success, res.Source, res.URL)
+	if res.Tier != 1 {
+		t.Errorf("expected Tier 1, got Tier %d", res.Tier)
+	}
+	if !strings.Contains(strings.ToLower(res.Source), "hubcloud") {
+		t.Errorf("expected source hubcloud, got %s", res.Source)
+	}
+	if !strings.HasPrefix(res.URL, "http://") && !strings.HasPrefix(res.URL, "https://") {
+		t.Errorf("expected URL to start with http/https, got %s", res.URL)
+	}
+}
+
 

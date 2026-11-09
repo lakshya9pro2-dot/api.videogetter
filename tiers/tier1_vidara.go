@@ -522,6 +522,9 @@ func (v *VidaraTier) LoadData(paths ...string) error {
 			if play.HDHub == "" && item.HubCloud != "" {
 				play.HDHub = item.HubCloud
 			}
+			if play.HDHub == "" && item.HDCloud != "" {
+				play.HDHub = item.HDCloud
+			}
 			if play.URL == "" && item.URL != "" {
 				play.URL = item.URL
 			}
@@ -650,7 +653,7 @@ func (v *VidaraTier) scanItemsManually(raw string) []models.MediaItem {
 		if mSt := regexp.MustCompile(`(?i)"st":\s*"([^"]*)"`).FindStringSubmatch(rest); len(mSt) > 1 {
 			st = mSt[1]
 		}
-		if mH := regexp.MustCompile(`(?i)"(?:hdhub|hubhd|hubcloud)":\s*"([^"]*)"`).FindStringSubmatch(rest); len(mH) > 1 {
+		if mH := regexp.MustCompile(`(?i)"(?:hdhub|hubhd|hubcloud|hdcloud)":\s*"([^"]*)"`).FindStringSubmatch(rest); len(mH) > 1 {
 			hdhub = mH[1]
 		}
 		results = append(results, models.MediaItem{
@@ -687,6 +690,7 @@ func (v *VidaraTier) scanItemsManually(raw string) []models.MediaItem {
 					va := ""
 					sh := ""
 					st := ""
+					hdhub := ""
 					if mVa := regexp.MustCompile(`(?i)"va":\s*"([^"]*)"`).FindStringSubmatch(epRest); len(mVa) > 1 {
 						va = mVa[1]
 					}
@@ -696,12 +700,16 @@ func (v *VidaraTier) scanItemsManually(raw string) []models.MediaItem {
 					if mSt := regexp.MustCompile(`(?i)"st":\s*"([^"]*)"`).FindStringSubmatch(epRest); len(mSt) > 1 {
 						st = mSt[1]
 					}
+					if mH := regexp.MustCompile(`(?i)"(?:hdhub|hubhd|hubcloud|hdcloud)":\s*"([^"]*)"`).FindStringSubmatch(epRest); len(mH) > 1 {
+						hdhub = mH[1]
+					}
 					episodes = append(episodes, models.EpisodeItem{
 						Episode: epNum,
 						Play: models.Playback{
-							VA: CleanID(va),
-							SH: CleanID(sh),
-							ST: CleanID(st),
+							VA:    CleanID(va),
+							SH:    CleanID(sh),
+							ST:    CleanID(st),
+							HDHub: strings.TrimSpace(hdhub),
 						},
 					})
 				}

@@ -77,13 +77,369 @@
     }
   },
   {
+    "id": 259909,
+    "title": "Dexter: Resurrection",
+    "type": "tv",
+    "quality": "HD",
+    "season": 2,
+    "episodes": [
+      {
+        "episode": 1,
+        "play": {
+          "hdcloud": "fnvjwiljih5uu8w",
+          "play": ""
+        }
+      },
+      {
+        "episode": 2,
+        "play": {
+          "hdcloud": "rnhevmogcyvmhav",
+          "play": ""
+        }
+      },
+      {
+        "episode": 3,
+        "play": {
+          "va": "",
+          "play": ""
+        }
+      },
+      {
+        "episode": 4,
+        "play": {
+          "va": "",
+          "play": ""
+        }
+      },
+      {
+        "episode": 5,
+        "play": {
+          "va": "",
+          "play": ""
+        }
+      },
+      {
+        "episode": 6,
+        "play": {
+          "va": "",
+          "play": ""
+        }
+      },
+      {
+        "episode": 7,
+        "play": {
+          "va": "",
+          "play": ""
+        }
+      },
+      {
+        "episode": 8,
+        "play": {
+          "va": "",
+          "play": ""
+        }
+      },
+      {
+        "episode": 9,
+        "play": {
+          "va": "",
+          "play": ""
+        }
+      },
+      {
+        "episode": 10,
+        "play": {
+          "va": "",
+          "play": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": 1339713,
+    "title": "Obsession",
+    "type": "movie",
+    "quality": "HD",
+    "play": {
+      "va": "d1d074094f4e",
+      "play": ""
+    }
+  },
+  {
+    "id": 1439930,
+    "title": "The Punisher: One Last Kill",
+    "type": "movie",
+    "quality": "HD",
+    "play": {
+      "va": "59a0faee5q5hvla",
+      "play": ""
+    }
+  },
+  {
+    "id": 870769,
+    "title": "Viruman",
+    "type": "movie",
+    "quality": "HD",
+    "play": {
+      "va": "780592dea38c",
+      "play": ""
+    }
+  },
+  {
+    "id": 213375,
+    "title": "VisionQuest",
+    "type": "tv",
+    "quality": "HD",
+    "season": 1,
+    "episodes": [
+      {
+        "episode": 1,
+        "play": {
+          "hdcloud": "nhnwrwnqufqqj1q",
+          "play": ""
+        }
+      },
+      {
+        "episode": 2,
+        "play": {
+          "hdcloud": "m4doi4msem4yggt",
+          "play": ""
+        }
+      },
+      {
+        "episode": 3,
+        "play": {
+          "hdcloud": "in9v2ysynnejmny",
+          "play": ""
+        }
+      },
+      {
+        "episode": 4,
+        "play": {
+          "hdcloud": "aqkpxerabapdtk1",
+          "play": ""
+        }
+      },
+      {
+        "episode": 5,
+        "play": {
+          "hdcloud": "tmwkkcwhmg1homh",
+          "play": ""
+        }
+      },
+      {
+        "episode": 6,
+        "play": {
+          "hdcloud": "ux1wni2windugky",
+          "play": ""
+        }
+      },
+      {
+        "episode": 7,
+        "play": {
+          "hdcloud": "rl5hp9w1lohej79",
+          "play": ""
+        }
+      }
+    ]
+  },
+  {
     "id": 969681,
     "title": "Spider-Man: Brand New Day",
     "type": "movie",
     "quality": "HD",
     "play": {
       "va": "cS121zcDVFxvH",
-      "sh": "",
+      "play": ""
+    }
+  },
+  {
+    "id": 11436,
+    "title": "Bigg Boss",
+    "type": "tv",
+    "quality": "HD",
+    "season": 20,
+    "episodes": [
+      {
+        "episode": 25,
+        "play": {
+          "va": "VzpDcBGL8lqy",
+          "play": ""
+        }
+      },
+      {
+        "episode": 26,
+        "play": {
+          "va": "9IRHBCdP4E8o",
+          "play": ""
+        }
+      },
+      {
+        "episode": 27,
+        "play": {
+          "va": "aqWO7L5kbsNO",
+          "play": ""
+        }
+      },
+      {
+        "episode": 28,
+        "play": {
+          "va": "",
+          "play": ""
+        }
+      },
+      {
+        "episode": 29,
+        "play": {
+          "va": "ZAUoAGmGrq0k",
+          "play": ""
+        }
+      },
+      {
+        "episode": 30,
+        "play": {
+          "va": "8Gl3AlGRjLPY",
+          "play": ""
+        }
+      },
+      {
+        "episode": 31,
+        "play": {
+          "va": "9X6muhMyUAVY",
+          "play": ""
+        }
+      },
+      {
+        "episode": 32,
+        "play": {
+          "va": "UnG5BKiW2LwZ",
+          "play": ""
+        }
+      },
+      {
+        "episode": 33,
+        "play": {
+          "va": "Uunf7C6oFsDg",
+          "play": ""
+        }
+      },
+      {
+        "episode": 34,
+        "play": {
+          "va": "5H0HwnJ52x7Xm",
+          "play": ""
+        }
+      },
+      {
+        "episode": 35,
+        "play": {
+          "va": "odbC7qzNymD3Q",
+          "play": ""
+        }
+      },
+      {
+        "episode": 36,
+        "play": {
+          "va": "",
+          "play": ""
+        }
+      },
+      {
+        "episode": 37,
+        "play": {
+          "va": "RVv46Zw2PsWy",
+          "play": ""
+        }
+      },
+      {
+        "episode": 38,
+        "play": {
+          "va": "rXIDKFvlu7o1",
+          "play": ""
+        }
+      },
+      {
+        "episode": 39,
+        "play": {
+          "va": "6rJkvZjpxsZp",
+          "play": ""
+        }
+      },
+      {
+        "episode": 40,
+        "play": {
+          "va": "LrhhfQtskWGGi",
+          "play": ""
+        }
+      },
+      {
+        "episode": 24,
+        "play": {
+          "va": "f1T9JNw9ou0Dp",
+          "play": ""
+        }
+      },
+      {
+        "episode": 23,
+        "play": {
+          "va": "MrPKzRGu5QHSi",
+          "play": ""
+        }
+      },
+      {
+        "episode": 20,
+        "play": {
+          "va": "tZaEn6UH7SYbT",
+          "play": ""
+        }
+      },
+      {
+        "episode": 41,
+        "play": {
+          "va": "qpeYBUrDZCjnp",
+          "play": ""
+        }
+      },
+      {
+        "episode": 42,
+        "play": {
+          "va": "zt2Qy1yCwEm3r",
+          "play": ""
+        }
+      },
+      {
+        "episode": 43,
+        "play": {
+          "va": "QMFEw84m1ypNo",
+          "play": ""
+        }
+      },
+      {
+        "episode": 44,
+        "play": {
+          "va": "GMmD1hhSLS63j",
+          "play": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": 1234139,
+    "title": "Jailer 2",
+    "type": "movie",
+    "quality": "HD",
+    "play": {
+      "va": "WraQYRSJuI0FW",
+      "play": ""
+    }
+  },
+  {
+    "id": 1368337,
+    "title": "The Odyssey",
+    "type": "movie",
+    "quality": "HD",
+    "play": {
+      "hdcloud": "peqnk93n13ekpn5",
       "play": ""
     }
   },
@@ -93,7 +449,171 @@
     "type": "movie",
     "quality": "HD",
     "play": {
-      "st": "0A2vDYQz3wIbPQ6"
+      "st": "0A2vDYQz3wIbPQ6",
+      "play": ""
+    }
+  },
+  {
+    "id": 335787,
+    "title": "Family Full House with Rohit Sharma",
+    "type": "tv",
+    "quality": "HD",
+    "season": 1,
+    "episodes": [
+      {
+        "episode": 1,
+        "play": {
+          "va": "jupqTWNC939g",
+          "play": ""
+        }
+      },
+      {
+        "episode": 2,
+        "play": {
+          "va": "EPmbLSnACJK2",
+          "play": ""
+        }
+      },
+      {
+        "episode": 3,
+        "play": {
+          "va": "VUfYPEf9geoA",
+          "play": ""
+        }
+      },
+      {
+        "episode": 4,
+        "play": {
+          "va": "b8OgYf4WbX6t",
+          "play": ""
+        }
+      },
+      {
+        "episode": 5,
+        "play": {
+          "va": "ZOjtI4ZZ8qC6",
+          "play": ""
+        }
+      },
+      {
+        "episode": 6,
+        "play": {
+          "va": "0iPXZ8o218uc",
+          "play": ""
+        }
+      },
+      {
+        "episode": 7,
+        "play": {
+          "va": "iTNLQ8QFQ0yV",
+          "play": ""
+        }
+      },
+      {
+        "episode": 8,
+        "play": {
+          "va": "52eqfbu1Zwyy",
+          "play": ""
+        }
+      },
+      {
+        "episode": 9,
+        "play": {
+          "va": "RVevjL2uwE56",
+          "play": ""
+        }
+      },
+      {
+        "episode": 10,
+        "play": {
+          "va": "6yh5IUIBvpjn",
+          "play": ""
+        }
+      },
+      {
+        "episode": 11,
+        "play": {
+          "st": "aGvPK2pe3eiW9M",
+          "play": ""
+        }
+      },
+      {
+        "episode": 12,
+        "play": {
+          "st": "aGvPK2pe3eiW9M",
+          "play": ""
+        }
+      },
+      {
+        "episode": 13,
+        "play": {
+          "st": "aGvPK2pe3eiW9M",
+          "play": ""
+        }
+      },
+      {
+        "episode": 14,
+        "play": {
+          "st": "aGvPK2pe3eiW9M",
+          "play": ""
+        }
+      },
+      {
+        "episode": 15,
+        "play": {
+          "st": "aGvPK2pe3eiW9M",
+          "play": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": 14544,
+    "title": "Koffee with Karan",
+    "type": "tv",
+    "quality": "HD",
+    "season": 9,
+    "episodes": [
+      {
+        "episode": 1,
+        "play": {
+          "va": "YYbZdiOt5Lmdq",
+          "play": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": 1153576,
+    "title": "Street fighter",
+    "type": "movie",
+    "quality": "HD",
+    "play": {
+      "va": "",
+      "play": "",
+      "sh": "3e2wn0r22xyn"
+    }
+  },
+  {
+    "id": 1541477,
+    "title": "You, Me, Us",
+    "type": "movie",
+    "quality": "HD",
+    "play": {
+      "va": "",
+      "play": "",
+      "hdhub": "ligaiuaszsqmfaj"
+    }
+  },
+  {
+    "id": 1378537,
+    "title": "mirzapur-the-movie",
+    "type": "movie",
+    "quality": "HD",
+    "play": {
+      "va": "",
+      "play": "",
+      "sh": "1r1639cyagtk"
     }
   }
 ]
