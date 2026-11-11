@@ -21,7 +21,7 @@ import (
 
 const (
 	StreamtapeDefaultURL = "https://streamtape.com/v/0A2vDYQz3wIbPQ6/"
-	VidaraDefaultURL     = "https://vidara.to/v/d932127894f1"
+	VidaraDefaultURL     = "https://mxzhxco8dft.com/v/d932127894f1"
 )
 
 // APIHandler handles HTTP requests for the multi-tier streaming API.
@@ -179,6 +179,7 @@ func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.Res
 	// 1. Direct MP4: Always play WITHOUT proxy in BOTH normal and web mode!
 	isDirectMP4 := result.Source == "direct" || (result.Direct && result.StreamType == "mp4") || (result.Source != "streamtape" && strings.HasSuffix(strings.ToLower(strings.Split(result.URL, "?")[0]), ".mp4") && result.Direct)
 	if isDirectMP4 {
+		log.Printf("[proxy] Direct MP4 detected for %s (source: %s) -> playing DIRECT WITHOUT PROXY: %s", videoID, result.Source, result.URL)
 		return nil
 	}
 
@@ -250,6 +251,7 @@ func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.Res
 
 		result.URL = playbackURL
 		result.Direct = false
+		log.Printf("[proxy] Successfully proxied %s for %s via Netlify Worker: %s", provider, videoID, playbackURL)
 
 		if result.Headers != nil {
 			delete(result.Headers, "Origin")
@@ -266,6 +268,7 @@ func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.Res
 	// 3. In normal mode (!isWeb), ONLY Streamtape and StreamHG are proxied.
 	// All other sources (Vidara, HubCloud, Tiers 2-4) remain DIRECT.
 	if !isWeb {
+		log.Printf("[proxy] Normal mode (non-web) for %s (source: %s) -> serving direct stream: %s", videoID, result.Source, result.URL)
 		return nil
 	}
 
@@ -288,6 +291,7 @@ func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.Res
 	if pErr == nil && proxiedURL != "" {
 		result.URL = proxiedURL
 		result.Direct = false
+		log.Printf("[proxy] ?web mode for %s (source: %s) -> successfully proxied via proxyservr: %s", videoID, result.Source, proxiedURL)
 		if result.Headers != nil {
 			delete(result.Headers, "Origin")
 			delete(result.Headers, "Referer")

@@ -25,6 +25,9 @@ import (
 // DefaultVidaraJSONURL is the default remote URL for the Tier 1 JSON dataset.
 const DefaultVidaraJSONURL = "https://www.jsonkeeper.com/b/FWSAK"
 
+// DefaultVidaraBase is the default base URL for Vidara (Tier 1).
+const DefaultVidaraBase = "https://mxzhxco8dft.com"
+
 // DefaultStreamHGBase is the default base URL for StreamHG / Hanerix resolver.
 const DefaultStreamHGBase = "https://hanerix.com"
 
@@ -57,6 +60,7 @@ var (
 	}
 
 	vidaraDomains = map[string]bool{
+		"mxzhxco8dft.com":     true,
 		"vidara.to":           true,
 		"vidavaca.net":        true,
 		"vidaarax.net":        true,
@@ -87,7 +91,7 @@ var (
 	reSTParam       = regexp.MustCompile(`(?i)(?:st\?play=|\bst/|/st/|[?&]st=|\bst=|[?&]play=)([^/&?#\s]+)`)
 	reSTFull        = regexp.MustCompile(`(?i)streamtape\.com/v/([a-zA-Z0-9_\-]+)`)
 	reVAParam       = regexp.MustCompile(`(?i)(?:va\?playd=|\bva/|/va/|[?&]va=|\bva=|[?&]playd=)([^/&?#\s]+)`)
-	reVAFull        = regexp.MustCompile(`(?i)vidara\.to/v/([a-zA-Z0-9_\-]+)`)
+	reVAFull        = regexp.MustCompile(`(?i)(?:mxzhxco8dft\.com|vidara\.to)/v/([a-zA-Z0-9_\-]+)`)
 	reSHParam       = regexp.MustCompile(`(?i)(?:sh\?play=|\bsh/|/sh/|[?&]sh=|\bsh=|[?&]c=|\bc=)([^/&?#\s]+)`)
 	reVarSrc        = regexp.MustCompile(`(?i)var\s+src\s*=\s*"([^"]+)"`)
 	reTitle         = regexp.MustCompile(`(?i)<title>(.*?)</title>`)
@@ -147,7 +151,7 @@ type VidaraTier struct {
 // NewVidaraTier creates a new Tier 1 resolver.
 func NewVidaraTier(vidaraBase, streamtapeBase string, timeout time.Duration) *VidaraTier {
 	if vidaraBase == "" {
-		vidaraBase = "https://vidara.to"
+		vidaraBase = DefaultVidaraBase
 	}
 	if streamtapeBase == "" {
 		streamtapeBase = "https://streamtape.com"
@@ -170,6 +174,36 @@ func NewVidaraTier(vidaraBase, streamtapeBase string, timeout time.Duration) *Vi
 			},
 		},
 	}
+}
+
+// SetVidaraBase configures the base URL for Vidara.
+func (v *VidaraTier) SetVidaraBase(base string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	cleaned := strings.TrimRight(strings.TrimSpace(base), "/")
+	if cleaned != "" {
+		v.vidaraBase = cleaned
+	}
+}
+
+// GetVidaraBase returns the configured Vidara base URL.
+func (v *VidaraTier) GetVidaraBase() string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	if v.vidaraBase == "" {
+		return DefaultVidaraBase
+	}
+	return v.vidaraBase
+}
+
+// getVidaraOrigin returns the Origin header for Vidara streams based on the configured base URL.
+func (v *VidaraTier) getVidaraOrigin() string {
+	return v.GetVidaraBase()
+}
+
+// getVidaraReferer returns the Referer header for Vidara streams based on the configured base URL.
+func (v *VidaraTier) getVidaraReferer() string {
+	return v.getVidaraOrigin() + "/"
 }
 
 // SetStreamHGBase configures the proxy base URL for StreamHG.
@@ -804,6 +838,8 @@ func (v *VidaraTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.Reso
 	}
 
 	log.Printf("[tier1] found movie %d (%s) in Vidara dataset", tmdbID, rec.Title)
+	log.Printf("[tier1] movie %d (%s) playback keys -> VA=%q, SH=%q, ST=%q, HDHub=%q, Play=%q",
+		tmdbID, rec.Title, rec.Play.VA, rec.Play.SH, rec.Play.ST, rec.Play.HDHub, rec.Play.URL)
 
 	// If VA and SH have no code and play has a direct URL, send to response directly (no resolution needed)
 	if directURL, ok := v.CheckDirectPlay(rec.Play); ok {
@@ -817,8 +853,8 @@ func (v *VidaraTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.Reso
 			Title:   rec.Title,
 			URL:     directURL,
 			Headers: map[string]string{
-				"Referer": "https://vidara.to/",
-				"Origin":  "https://vidara.to",
+				"Referer": v.getVidaraReferer(),
+				"Origin":  v.getVidaraOrigin(),
 			},
 			Play: &models.Playback{
 				VA:    rec.Play.VA,
@@ -839,8 +875,8 @@ func (v *VidaraTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.Reso
 		Source:  "vidara",
 		Title:   rec.Title,
 		Headers: map[string]string{
-			"Referer": "https://vidara.to/",
-			"Origin":  "https://vidara.to",
+			"Referer": v.getVidaraReferer(),
+			"Origin":  v.getVidaraOrigin(),
 		},
 		Play: &models.Playback{
 			VA:    rec.Play.VA,
@@ -873,6 +909,9 @@ func (v *VidaraTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.Reso
 			}
 			res.Headers = map[string]string{}
 		}
+		log.Printf("[tier1] [SUCCESS] movie %d resolved stream via %s: %s", tmdbID, res.Source, streamURL)
+	} else {
+		log.Printf("[tier1] [FAIL] movie %d could not resolve a stream from any provider in record", tmdbID)
 	}
 
 	return res, nil
@@ -888,6 +927,8 @@ func (v *VidaraTier) ResolveTV(ctx context.Context, tmdbID, season, episode int)
 	}
 
 	log.Printf("[tier1] found TV %d S%dE%d (%s) in Vidara dataset", tmdbID, season, episode, rec.Title)
+	log.Printf("[tier1] TV %d S%dE%d (%s) playback keys -> VA=%q, SH=%q, ST=%q, HDHub=%q, Play=%q",
+		tmdbID, season, episode, rec.Title, rec.Play.VA, rec.Play.SH, rec.Play.ST, rec.Play.HDHub, rec.Play.URL)
 
 	// If VA and SH have no code and play has a direct URL, send to response directly (no resolution needed)
 	if directURL, ok := v.CheckDirectPlay(rec.Play); ok {
@@ -903,8 +944,8 @@ func (v *VidaraTier) ResolveTV(ctx context.Context, tmdbID, season, episode int)
 			Episode: &episode,
 			URL:     directURL,
 			Headers: map[string]string{
-				"Referer": "https://vidara.to/",
-				"Origin":  "https://vidara.to",
+				"Referer": v.getVidaraReferer(),
+				"Origin":  v.getVidaraOrigin(),
 			},
 			Play: &models.Playback{
 				VA:    rec.Play.VA,
@@ -927,8 +968,8 @@ func (v *VidaraTier) ResolveTV(ctx context.Context, tmdbID, season, episode int)
 		Season:  &season,
 		Episode: &episode,
 		Headers: map[string]string{
-			"Referer": "https://vidara.to/",
-			"Origin":  "https://vidara.to",
+			"Referer": v.getVidaraReferer(),
+			"Origin":  v.getVidaraOrigin(),
 		},
 		Play: &models.Playback{
 			VA:    rec.Play.VA,
@@ -961,6 +1002,9 @@ func (v *VidaraTier) ResolveTV(ctx context.Context, tmdbID, season, episode int)
 			}
 			res.Headers = map[string]string{}
 		}
+		log.Printf("[tier1] [SUCCESS] TV %d S%dE%d resolved stream via %s: %s", tmdbID, season, episode, res.Source, streamURL)
+	} else {
+		log.Printf("[tier1] [FAIL] TV %d S%dE%d could not resolve a stream from any provider in record", tmdbID, season, episode)
 	}
 
 	return res, nil
@@ -1074,7 +1118,7 @@ func (v *VidaraTier) tryResolveStream(ctx context.Context, vaID, shID, stID, hdh
 
 // ExtractVidara extracts streaming URL from Vidara upstream.
 func (v *VidaraTier) ExtractVidara(ctx context.Context, urlOrID string) (*models.ExtractorResponse, error) {
-	mainURL := v.vidaraBase
+	mainURL := v.GetVidaraBase()
 	fileCode := CleanID(urlOrID)
 
 	if strings.Contains(urlOrID, "://") {
@@ -1153,8 +1197,8 @@ func (v *VidaraTier) ExtractVidara(ctx context.Context, urlOrID string) (*models
 		AudioTracks: dynamicAudio,
 		StreamType:  streamType,
 		Headers: map[string]string{
-			"Referer": "https://vidara.to/",
-			"Origin":  "https://vidara.to",
+			"Referer": v.getVidaraReferer(),
+			"Origin":  v.getVidaraOrigin(),
 		},
 	}, nil
 }

@@ -1,0 +1,11 @@
+nohup: ignoring input
+2026/11/11 16:48:40 [*] Initializing 4-Tier Multi-Source Streaming API...
+2026/11/11 16:48:40 [*] Tier 1 HubCloud Base URL: https://hubcloud.pw
+2026/11/11 16:48:40 [*] Tier 1 HubCloud Proxy Worker configured: https://proxyservr.kineflex-netflex.workers.dev
+2026/11/11 16:48:40 [tier1] dynamically updated HubCloud domain to: https://hubcloud.pw
+2026/11/11 16:48:50 [tier1] successfully read dataset from data/vidara.json (16387 bytes)
+2026/11/11 16:48:50 [tier1] indexed 11 movies and 104 TV episodes
+2026/11/11 16:48:50 [*] Tier 3 CineTV enabled with base URL: https://cinetvtest.netlify.app
+2026/11/11 16:48:50 [*] Cloudflare Worker HLS Proxy & In-Worker Extractor enabled with 1 worker(s): [https://kineflexvideoapi.netlify.app] (fallback_direct: false)
+2026/11/11 16:48:50 [*] Server listening on http://0.0.0.0:8088
+2026/11/11 16:48:50 Server failed to start: listen tcp :8088: bind: address already in use

@@ -10,7 +10,14 @@ import (
 // ============================================================================
 // EASY CONFIGURATION: EDIT THIS URL TO CHANGE THE JSON DATASET LOCATION
 // ============================================================================
+// DefaultPort is the default port the HTTP server listens on if PORT env var is unset.
+const DefaultPort = "8088"
+
+// DefaultVidaraJSONURL is the default remote URL for the Tier 1 JSON dataset.
 const DefaultVidaraJSONURL = "https://www.jsonkeeper.com/b/FWSAK"
+
+// DefaultVidaraBaseURL is the default base URL for Vidara (Tier 1).
+const DefaultVidaraBaseURL = "https://mxzhxco8dft.com"
 
 // AllowedOrigin is the strictly allowed Origin/Referer for backend API access.
 const DefaultAllowedOrigin = "https://api.kineflex.site"
@@ -74,7 +81,7 @@ type Config struct {
 func LoadConfig() *Config {
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = DefaultPort
 	}
 
 	appURLWorker := "https://pinggy-registry.kineflex-netflex.workers.dev/api/app"
@@ -94,7 +101,7 @@ func LoadConfig() *Config {
 
 	vidaraURL := os.Getenv("VIDARA_BASE_URL")
 	if vidaraURL == "" {
-		vidaraURL = "https://vidara.to"
+		vidaraURL = DefaultVidaraBaseURL
 	}
 
 	streamTapeURL := os.Getenv("STREAMTAPE_BASE_URL")

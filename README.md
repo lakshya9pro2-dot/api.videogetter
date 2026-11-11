@@ -226,11 +226,11 @@ go build -o vidara-server .
 
 ### Run
 ```bash
-# Start server on default port 8080
+# Start server on default port 8088
 ./vidara-server
 
 # Or customize environment variables
-PORT=8080 VIDFAST_TIMEOUT_SECONDS=10 ./vidara-server
+PORT=8088 VIDFAST_TIMEOUT_SECONDS=10 ./vidara-server
 ```
 
 ---
@@ -239,7 +239,7 @@ PORT=8080 VIDFAST_TIMEOUT_SECONDS=10 ./vidara-server
 
 ### 1. Movie Playback (Normal Mode)
 ```bash
-curl -s "http://localhost:8080/api/movie/550" \
+curl -s "http://localhost:8088/api/movie/550" \
   -H "Origin: https://api.kineflex.site" \
   -H "X-Api-Key: lakshya9310081539@"
 ```
@@ -265,7 +265,7 @@ curl -s "http://localhost:8080/api/movie/550" \
 
 ### 2. Movie Playback (Web Mode `?web`)
 ```bash
-curl -s "http://localhost:8080/api/movie/550?web" \
+curl -s "http://localhost:8088/api/movie/550?web" \
   -H "Origin: https://api.kineflex.site" \
   -H "X-Api-Key: lakshya9310081539@"
 ```
@@ -289,7 +289,7 @@ curl -s "http://localhost:8080/api/movie/550?web" \
 ### 3. StreamHG Stream (Both Normal & Web Mode)
 Resolving a title with a StreamHG / Hanerix source (e.g. `sh` / `sg` ID `lt1t142hhe8p`):
 ```bash
-curl -s "http://localhost:8080/api/movie/1234139" \
+curl -s "http://localhost:8088/api/movie/1234139" \
   -H "Origin: https://api.kineflex.site" \
   -H "X-Api-Key: lakshya9310081539@"
 ```
@@ -313,7 +313,7 @@ curl -s "http://localhost:8080/api/movie/1234139" \
 ### 4. Direct MP4 (Both Normal & Web Mode)
 Resolving a title with Direct MP4 playback (e.g. Videy / direct CDN):
 ```bash
-curl -s "http://localhost:8080/api/movie/999999?web" \
+curl -s "http://localhost:8088/api/movie/999999?web" \
   -H "Origin: https://api.kineflex.site" \
   -H "X-Api-Key: lakshya9310081539@"
 ```
@@ -336,7 +336,7 @@ curl -s "http://localhost:8080/api/movie/999999?web" \
 
 ### 5. TV Show Playback
 ```bash
-curl -s "http://localhost:8080/api/tv/1396/1/1?web" \
+curl -s "http://localhost:8088/api/tv/1396/1/1?web" \
   -H "Origin: https://api.kineflex.site" \
   -H "X-Api-Key: lakshya9310081539@"
 ```
@@ -345,7 +345,7 @@ curl -s "http://localhost:8080/api/tv/1396/1/1?web" \
 
 ### 6. Extended M3U Playlist (Public / No Auth Required)
 ```bash
-curl -s "http://localhost:8080/api/movie/550?format=m3u"
+curl -s "http://localhost:8088/api/movie/550?format=m3u"
 ```
 **Response (`application/vnd.apple.mpegurl`):**
 ```m3u
@@ -365,7 +365,7 @@ When streaming directly in native players (Normal Mode), these upstream headers 
 
 | Tier | Source | `Referer` | `Origin` | Handled By |
 |---|---|---|---|---|
-| **Tier 1** | Vidara | `https://vidara.to/` | `https://vidara.to` | Native Player or `proxyservr` |
+| **Tier 1** | Vidara | `https://mxzhxco8dft.com/` | `https://mxzhxco8dft.com` | Native Player or `proxyservr` |
 | **Tier 1** | StreamHG | `https://hanerix.com/` | `https://hanerix.com` | Handled Server-Side by Netlify Worker |
 | **Tier 1** | Streamtape | `https://streamtape.com/` | `https://streamtape.com` | Handled Server-Side by Netlify Worker |
 | **Tier 2** | VidFast Extractor | `https://vidfast.vc/` | `https://vidfast.vc` | Native Player or `proxyservr` |
@@ -381,7 +381,7 @@ When streaming directly in native players (Normal Mode), these upstream headers 
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PORT` | `8080` | Port for the HTTP server to listen on. |
+| `PORT` | `8088` | Port for the HTTP server to listen on. |
 | `ALLOWED_ORIGIN` | `https://api.kineflex.site` | Strictly allowed Origin for JSON API access. |
 | `API_KEY` | `lakshya9310081539@` | Secret API key required by middleware (`X-Api-Key`). |
 | `REDIRECT_URL` | `https://api.kineflex.site/` | Redirection destination for unauthorized web traffic. |
@@ -396,6 +396,7 @@ When streaming directly in native players (Normal Mode), these upstream headers 
 | `FEBBOX_TOKEN` | `eyJ0eXAi...` | Febbox user JWT authentication token. |
 | `TMDB_KEY` | `e6333b32...` | TMDB API key for metadata resolution. |
 | `REQUEST_TIMEOUT_SECONDS` | `10` | Default timeout for standard HTTP operations. |
+| `VIDARA_BASE_URL` | `https://mxzhxco8dft.com` | Base upstream domain for Tier 1 Vidara resolver. |
 | `VIDARA_JSON_URL` | `https://www.jsonkeeper.com/b/FWSAK` | Remote dataset URL for Tier 1 store. |
 
 ---

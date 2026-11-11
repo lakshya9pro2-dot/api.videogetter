@@ -230,29 +230,30 @@ type extractorAPIResponse struct {
 // ResolveMovie resolves a movie via Tier 2 VidFast extractor.
 func (t *ExtractorTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.ResolutionResult, error) {
 	targetURL := fmt.Sprintf("%s/movie/%d", t.vidfastBaseURL, tmdbID)
-	log.Printf("[tier2] extracting VidFast URL for movie %d: %s", tmdbID, targetURL)
 
 	// Enforce dedicated per-tier timeout so Tier 2 cannot exhaust the parent request budget
 	tierBudget := time.Duration(t.GetTimeoutSeconds()+3) * time.Second
 	tierCtx, cancel := context.WithTimeout(ctx, tierBudget)
 	defer cancel()
 
+	log.Printf("[tier2] [START] Querying VidFast extractor for movie %d (target: %s, budget: %v)...", tmdbID, targetURL, tierBudget)
+
 	streamURL, err := t.callExtractor(tierCtx, targetURL)
 	if err != nil {
 		if tierCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
-			log.Printf("[tier2] movie %d timed out after %v, falling back to next tier", tmdbID, tierBudget)
+			log.Printf("[tier2] [TIMEOUT] Movie %d timed out after %v, cascading cleanly to Tier 3", tmdbID, tierBudget)
 		} else {
-			log.Printf("[tier2] movie %d failed: %v", tmdbID, err)
+			log.Printf("[tier2] [FAIL] Movie %d extractor call failed: %v, cascading to Tier 3", tmdbID, err)
 		}
 		return nil, nil // Return nil to allow fallback to Tier 3
 	}
 
 	if streamURL == "" {
-		log.Printf("[tier2] movie %d failed: extractor returned empty url", tmdbID)
+		log.Printf("[tier2] [FAIL] Movie %d extractor returned empty stream URL, cascading to Tier 3", tmdbID)
 		return nil, nil
 	}
 
-	log.Printf("[tier2] success resolving movie %d", tmdbID)
+	log.Printf("[tier2] [SUCCESS] Resolved movie %d via VidFast extractor: %s", tmdbID, streamURL)
 	return &models.ResolutionResult{
 		Success: true,
 		TmdbID:  tmdbID,
@@ -270,29 +271,30 @@ func (t *ExtractorTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.R
 // ResolveTV resolves a TV episode via Tier 2 VidFast extractor.
 func (t *ExtractorTier) ResolveTV(ctx context.Context, tmdbID, season, episode int) (*models.ResolutionResult, error) {
 	targetURL := fmt.Sprintf("%s/tv/%d/%d/%d", t.vidfastBaseURL, tmdbID, season, episode)
-	log.Printf("[tier2] extracting VidFast URL for TV %d S%dE%d: %s", tmdbID, season, episode, targetURL)
 
 	// Enforce dedicated per-tier timeout so Tier 2 cannot exhaust the parent request budget
 	tierBudget := time.Duration(t.GetTimeoutSeconds()+3) * time.Second
 	tierCtx, cancel := context.WithTimeout(ctx, tierBudget)
 	defer cancel()
 
+	log.Printf("[tier2] [START] Querying VidFast extractor for TV %d S%dE%d (target: %s, budget: %v)...", tmdbID, season, episode, targetURL, tierBudget)
+
 	streamURL, err := t.callExtractor(tierCtx, targetURL)
 	if err != nil {
 		if tierCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
-			log.Printf("[tier2] TV %d S%dE%d timed out after %v, falling back to next tier", tmdbID, season, episode, tierBudget)
+			log.Printf("[tier2] [TIMEOUT] TV %d S%dE%d timed out after %v, cascading cleanly to Tier 3", tmdbID, season, episode, tierBudget)
 		} else {
-			log.Printf("[tier2] TV %d S%dE%d failed: %v", tmdbID, season, episode, err)
+			log.Printf("[tier2] [FAIL] TV %d S%dE%d extractor call failed: %v, cascading to Tier 3", tmdbID, season, episode, err)
 		}
 		return nil, nil // Return nil to allow fallback to Tier 3
 	}
 
 	if streamURL == "" {
-		log.Printf("[tier2] TV %d S%dE%d failed: extractor returned empty url", tmdbID, season, episode)
+		log.Printf("[tier2] [FAIL] TV %d S%dE%d extractor returned empty stream URL, cascading to Tier 3", tmdbID, season, episode)
 		return nil, nil
 	}
 
-	log.Printf("[tier2] success resolving TV %d S%dE%d", tmdbID, season, episode)
+	log.Printf("[tier2] [SUCCESS] Resolved TV %d S%dE%d via VidFast extractor: %s", tmdbID, season, episode, streamURL)
 	return &models.ResolutionResult{
 		Success: true,
 		TmdbID:  tmdbID,

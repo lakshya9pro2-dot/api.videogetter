@@ -267,18 +267,16 @@ func SelectPreferredStream(streams []StreamOption) StreamOption {
 
 // ResolveMovie resolves a movie TMDB ID via Tier 4 (ShowBox / FilmU).
 func (t *Tier4) ResolveMovie(ctx context.Context, tmdbID int) (*models.ResolutionResult, error) {
-	log.Printf("[tier4] resolving movie %d via ShowBox", tmdbID)
+	log.Printf("[tier4] [START] Resolving movie %d via ShowBox / Febbox scraper...", tmdbID)
 
 	title, streams, err := t.FetchAllM3U8MovieStreams(ctx, tmdbID)
 	if err != nil || len(streams) == 0 {
-		if err != nil {
-			log.Printf("[tier4] movie %d error: %v", tmdbID, err)
-		}
+		log.Printf("[tier4] [FAIL] Movie %d failed on ShowBox: err=%v, streams_found=%d", tmdbID, err, len(streams))
 		return nil, nil // Cascade to clean 404
 	}
 
 	best := SelectPreferredStream(streams)
-	log.Printf("[tier4] successfully resolved movie %d (%s) -> %s [%s, %.2f GB]", tmdbID, title, best.Quality, best.Name, best.SizeGB)
+	log.Printf("[tier4] [SUCCESS] Resolved movie %d (%s) -> %s [%s, %.2f GB]: %s", tmdbID, title, best.Quality, best.Name, best.SizeGB, best.StreamURL)
 
 	var expPtr *int64
 	if best.Expiry > 0 {
@@ -304,18 +302,16 @@ func (t *Tier4) ResolveMovie(ctx context.Context, tmdbID int) (*models.Resolutio
 
 // ResolveTV resolves a TV episode via Tier 4 (ShowBox / FilmU).
 func (t *Tier4) ResolveTV(ctx context.Context, tmdbID, season, episode int) (*models.ResolutionResult, error) {
-	log.Printf("[tier4] resolving TV %d S%dE%d via ShowBox", tmdbID, season, episode)
+	log.Printf("[tier4] [START] Resolving TV %d S%02dE%02d via ShowBox / Febbox scraper...", tmdbID, season, episode)
 
 	title, streams, err := t.FetchAllM3U8TVStreams(ctx, tmdbID, season, episode)
 	if err != nil || len(streams) == 0 {
-		if err != nil {
-			log.Printf("[tier4] TV %d S%dE%d error: %v", tmdbID, season, episode, err)
-		}
+		log.Printf("[tier4] [FAIL] TV %d S%02dE%02d failed on ShowBox: err=%v, streams_found=%d", tmdbID, season, episode, err, len(streams))
 		return nil, nil // Cascade to clean 404
 	}
 
 	best := SelectPreferredStream(streams)
-	log.Printf("[tier4] successfully resolved TV %d S%dE%d (%s) -> %s [%s, %.2f GB]", tmdbID, season, episode, title, best.Quality, best.Name, best.SizeGB)
+	log.Printf("[tier4] [SUCCESS] Resolved TV %d S%02dE%02d (%s) -> %s [%s, %.2f GB]: %s", tmdbID, season, episode, title, best.Quality, best.Name, best.SizeGB, best.StreamURL)
 
 	var expPtr *int64
 	if best.Expiry > 0 {

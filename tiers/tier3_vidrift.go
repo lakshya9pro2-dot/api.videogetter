@@ -297,7 +297,7 @@ func (v *VidriftTier) resolveCineTVTV(ctx context.Context, tmdbID, season, episo
 
 // ResolveMovie resolves a movie TMDB ID via Tier 3 (CineTV -> Vidrift).
 func (v *VidriftTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.ResolutionResult, error) {
-	log.Printf("[tier3] resolving movie %d via Tier 3", tmdbID)
+	log.Printf("[tier3] [START] Resolving movie %d via Tier 3 (CineTV -> Vidrift Engine)...", tmdbID)
 
 	// Priority 0: CineTV (cinetvtest.netlify.app) - Direct MP4, no proxy needed
 	if v.GetCineTVBaseURL() != "" {
@@ -314,7 +314,7 @@ func (v *VidriftTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.Res
 
 	streamURL, provider, err := v.ResolveStream(ctx, mediaPath)
 	if err != nil || streamURL == "" {
-		log.Printf("[tier3] movie %d error: %v", tmdbID, err)
+		log.Printf("[tier3] [FAIL] Movie %d Vidrift resolution failed: %v, cascading to Tier 4", tmdbID, err)
 		return nil, nil // Cascade cleanly to Tier 4
 	}
 
@@ -323,7 +323,7 @@ func (v *VidriftTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.Res
 		title = fmt.Sprintf("Movie %d", tmdbID)
 	}
 
-	log.Printf("[tier3] successfully resolved movie %d (%s) via %s: %s", tmdbID, title, provider, streamURL)
+	log.Printf("[tier3] [SUCCESS] Resolved movie %d (%s) via %s: %s", tmdbID, title, provider, streamURL)
 
 	return &models.ResolutionResult{
 		Success: true,
@@ -342,7 +342,7 @@ func (v *VidriftTier) ResolveMovie(ctx context.Context, tmdbID int) (*models.Res
 
 // ResolveTV resolves a TV episode via Tier 3 (CineTV -> Vidrift).
 func (v *VidriftTier) ResolveTV(ctx context.Context, tmdbID, season, episode int) (*models.ResolutionResult, error) {
-	log.Printf("[tier3] resolving TV %d S%dE%d via Tier 3", tmdbID, season, episode)
+	log.Printf("[tier3] [START] Resolving TV %d S%02dE%02d via Tier 3 (CineTV -> Vidrift Engine)...", tmdbID, season, episode)
 
 	// Priority 0: CineTV (cinetvtest.netlify.app) - Direct MP4, no proxy needed
 	if v.GetCineTVBaseURL() != "" {
@@ -359,7 +359,7 @@ func (v *VidriftTier) ResolveTV(ctx context.Context, tmdbID, season, episode int
 
 	streamURL, provider, err := v.ResolveStream(ctx, mediaPath)
 	if err != nil || streamURL == "" {
-		log.Printf("[tier3] TV %d S%dE%d error: %v", tmdbID, season, episode, err)
+		log.Printf("[tier3] [FAIL] TV %d S%dE%d Vidrift resolution failed: %v, cascading to Tier 4", tmdbID, season, episode, err)
 		return nil, nil // Cascade cleanly to Tier 4
 	}
 
@@ -368,7 +368,7 @@ func (v *VidriftTier) ResolveTV(ctx context.Context, tmdbID, season, episode int
 		title = fmt.Sprintf("TV %d", tmdbID)
 	}
 
-	log.Printf("[tier3] successfully resolved TV %d S%dE%d (%s) via %s: %s", tmdbID, season, episode, title, provider, streamURL)
+	log.Printf("[tier3] [SUCCESS] Resolved TV %d S%dE%d (%s) via %s: %s", tmdbID, season, episode, title, provider, streamURL)
 
 	return &models.ResolutionResult{
 		Success: true,
