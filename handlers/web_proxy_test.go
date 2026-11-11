@@ -61,6 +61,7 @@ func TestWebProxy_NormalMode_Only_Streamtape_Proxied(t *testing.T) {
 		{"Tier2-VidFast", "vidfast-extractor", "https://vidfast.vc/stream/456.m3u8", "m3u8", false},
 		{"Tier3-Vidrift", "vidrift-atlas", "https://edge.reelvault.click/proxy?u=789", "m3u8", false},
 		{"Tier4-ShowBox", "showbox", "https://hls.shegu.net/999.m3u8", "m3u8", false},
+		{"CineTV", "cinetv", "https://79b0b.a0p3.com/vod/1/2025/04/03/604be407c1fe/1135529346.mp4", "mp4", false},
 		{"StreamHG", "streamhg", "https://hanerix.com/stream/sh123.m3u8", "m3u8", true},
 		{"Streamtape", "streamtape", "https://streamtape.com/get_video?id=st123", "mp4", true},
 	}
@@ -161,6 +162,7 @@ func TestWebProxy_WebMode_AllProxied(t *testing.T) {
 		{"Tier2-VidFast", "vidfast-extractor", "https://vidfast.vc/stream/456.m3u8", "m3u8", false},
 		{"Tier3-Vidrift", "vidrift-atlas", "https://edge.reelvault.click/proxy?u=789", "m3u8", false},
 		{"Tier4-ShowBox", "showbox", "https://hls.shegu.net/999.m3u8", "m3u8", false},
+		{"CineTV", "cinetv", "https://79b0b.a0p3.com/vod/1/2025/04/03/604be407c1fe/1135529346.mp4", "mp4", false},
 		{"StreamHG", "streamhg", "https://hanerix.com/stream/sh123.m3u8", "m3u8", true},
 		{"Streamtape", "streamtape", "https://streamtape.com/get_video?id=st123", "mp4", true},
 	}

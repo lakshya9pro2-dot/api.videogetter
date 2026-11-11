@@ -112,6 +112,7 @@ The API provides two operational modes via the `?web` query flag (e.g. `?web=tru
 | **Vidara (`va`)** | **Direct** (CDN with headers) | **Proxied** (`/api/hide`) | Cloudflare Worker (`proxyservr.kineflex-netflex.workers.dev`) |
 | **HubCloud (`hdcloud` / `hubcloud`)** | **Direct** (CDN with headers) | **Proxied** (`/api/hide`) | Cloudflare Worker (`proxyservr.kineflex-netflex.workers.dev`) |
 | **Tier 2 VidFast** | **Direct** (HLS stream) | **Proxied** (`/api/hide`) | Cloudflare Worker (`proxyservr.kineflex-netflex.workers.dev`) |
+| **Tier 3 CineTV** | **Direct** (CDN MP4) | **Proxied** (`/api/hide`) | Cloudflare Worker (`proxyservr.kineflex-netflex.workers.dev`) |
 | **Tier 3 Vidrift (Evion/Atlas/Vela)** | **Direct** (HLS stream) | **Proxied** (`/api/hide`) | Cloudflare Worker (`proxyservr.kineflex-netflex.workers.dev`) |
 | **Tier 4 ShowBox (Febbox)** | **Direct** (HLS stream) | **Proxied** (`/api/hide`) | Cloudflare Worker (`proxyservr.kineflex-netflex.workers.dev`) |
 

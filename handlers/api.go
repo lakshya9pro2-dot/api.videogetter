@@ -176,10 +176,10 @@ func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.Res
 		return nil
 	}
 
-	// 1. Direct MP4: Always play WITHOUT proxy in BOTH normal and web mode!
-	isDirectMP4 := result.Source == "direct" || (result.Direct && result.StreamType == "mp4") || (result.Source != "streamtape" && strings.HasSuffix(strings.ToLower(strings.Split(result.URL, "?")[0]), ".mp4") && result.Direct)
-	if isDirectMP4 {
-		log.Printf("[proxy] Direct MP4 detected for %s (source: %s) -> playing DIRECT WITHOUT PROXY: %s", videoID, result.Source, result.URL)
+	// 1. Explicit Direct sources (source == "direct"): Always play WITHOUT proxy in BOTH normal and web mode!
+	// (Note: CineTV and other tiered sources are NOT skipped here so they get proxied in ?web mode)
+	if result.Source == "direct" {
+		log.Printf("[proxy] Direct source detected for %s -> playing DIRECT WITHOUT PROXY: %s", videoID, result.URL)
 		return nil
 	}
 

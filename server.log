@@ -8,4 +8,23 @@ nohup: ignoring input
 2026/11/11 16:48:50 [*] Tier 3 CineTV enabled with base URL: https://cinetvtest.netlify.app
 2026/11/11 16:48:50 [*] Cloudflare Worker HLS Proxy & In-Worker Extractor enabled with 1 worker(s): [https://kineflexvideoapi.netlify.app] (fallback_direct: false)
 2026/11/11 16:48:50 [*] Server listening on http://0.0.0.0:8088
-2026/11/11 16:48:50 Server failed to start: listen tcp :8088: bind: address already in use
+2026/11/11 17:02:43 [resolver] ==================== RESOLVE MOVIE tmdb=550 ====================
+2026/11/11 17:02:43 [resolver] [1/4] Trying Tier 1 (Vidara / StreamHG / Streamtape) for movie 550...
+2026/11/11 17:02:43 [tier1] checking Vidara movie 550
+2026/11/11 17:02:43 [tier1] movie 550 not found in local index
+2026/11/11 17:02:43 [resolver] [1/4 MISS] Tier 1 returned no stream for movie 550 after 15.818µs, cascading to Tier 2...
+2026/11/11 17:02:43 [resolver] [2/4] Trying Tier 2 (VidFast Extractor) for movie 550...
+2026/11/11 17:02:43 [tier2] [START] Querying VidFast extractor for movie 550 (target: https://vidfast.vc/movie/550, budget: 13s)...
+2026/11/11 17:02:43 [tier2] requesting Pinggy extractor URL from worker: https://pinggy-registry.kineflex-netflex.workers.dev/api/app
+2026/11/11 17:02:44 [tier2] cached extractor URL: https://afopc-103-79-168-242.free.pinggy.net (expires: 2026-11-11T17:12:21+05:30)
+2026/11/11 17:02:44 [tier2] extractor request to https://afopc-103-79-168-242.free.pinggy.net failed with network error (network error calling extractor: Get "https://afopc-103-79-168-242.free.pinggy.net/extract?timeout=10&url=https%3A%2F%2Fvidfast.vc%2Fmovie%2F550": dial tcp: lookup afopc-103-79-168-242.free.pinggy.net on 127.0.0.53:53: no such host); force-refreshing worker URL for retry
+2026/11/11 17:02:44 [tier2] requesting Pinggy extractor URL from worker: https://pinggy-registry.kineflex-netflex.workers.dev/api/app
+2026/11/11 17:02:44 [tier2] cached extractor URL: https://afopc-103-79-168-242.free.pinggy.net (expires: 2026-11-11T17:12:21+05:30)
+2026/11/11 17:02:44 [tier2] retrying extractor request once with refreshed URL: https://afopc-103-79-168-242.free.pinggy.net
+2026/11/11 17:02:44 [tier2] [FAIL] Movie 550 extractor call failed: extractor retry failed: network error calling extractor: Get "https://afopc-103-79-168-242.free.pinggy.net/extract?timeout=10&url=https%3A%2F%2Fvidfast.vc%2Fmovie%2F550": dial tcp: lookup afopc-103-79-168-242.free.pinggy.net on 127.0.0.53:53: no such host, cascading to Tier 3
+2026/11/11 17:02:44 [resolver] [2/4 MISS] Tier 2 returned no stream for movie 550 after 794.47207ms, cascading to Tier 3...
+2026/11/11 17:02:44 [resolver] [3/4] Trying Tier 3 (CineTV & Vidrift Engine) for movie 550...
+2026/11/11 17:02:44 [tier3] [START] Resolving movie 550 via Tier 3 (CineTV -> Vidrift Engine)...
+2026/11/11 17:02:47 [tier3] successfully resolved movie 550 (Fight Club) via cinetv: https://79b0b.a0p3.com/vod/1/2025/04/03/604be407c1fe/1135529346.mp4?wsSecret=eaa2f1deb1dd134fbd67c106657b4439&wsTime=6af4529b
+2026/11/11 17:02:47 [resolver] [3/4 SUCCESS] Resolved movie 550 via Tier 3 in 2.684760745s (source: cinetv, url: https://79b0b.a0p3.com/vod/1/2025/04/03/604be407c1fe/1135529346.mp4?wsSecret=eaa2f1deb1dd134fbd67c106657b4439&wsTime=6af4529b)
+2026/11/11 17:02:47 [proxy] Direct MP4 detected for 550 (source: cinetv) -> playing DIRECT WITHOUT PROXY: https://79b0b.a0p3.com/vod/1/2025/04/03/604be407c1fe/1135529346.mp4?wsSecret=eaa2f1deb1dd134fbd67c106657b4439&wsTime=6af4529b
