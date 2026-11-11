@@ -49,6 +49,9 @@ func main() {
 
 	// API Handlers
 	apiHandler := handlers.NewAPIHandler(centralResolver, tier1, tier4, cfg.RequestTimeout)
+	if cfg.HubCloudProxyURL != "" {
+		apiHandler.SetWebWorkerURL(cfg.HubCloudProxyURL)
+	}
 
 	// Cloudflare Worker Playback Proxy Client (Part B)
 	if len(cfg.ProxyWorkerURLs) > 0 {

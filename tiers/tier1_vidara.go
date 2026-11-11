@@ -397,6 +397,8 @@ func CleanID(val string) string {
 				val = c
 			} else if sh := u.Query().Get("sh"); sh != "" {
 				val = sh
+			} else if sg := u.Query().Get("sg"); sg != "" {
+				val = sg
 			}
 		}
 	}
@@ -647,7 +649,7 @@ func (v *VidaraTier) scanItemsManually(raw string) []models.MediaItem {
 		if mVa := regexp.MustCompile(`(?i)"va":\s*"([^"]*)"`).FindStringSubmatch(rest); len(mVa) > 1 {
 			va = mVa[1]
 		}
-		if mSh := regexp.MustCompile(`(?i)"sh":\s*"([^"]*)"`).FindStringSubmatch(rest); len(mSh) > 1 {
+		if mSh := regexp.MustCompile(`(?i)"(?:sh|sg)":\s*"([^"]*)"`).FindStringSubmatch(rest); len(mSh) > 1 {
 			sh = mSh[1]
 		}
 		if mSt := regexp.MustCompile(`(?i)"st":\s*"([^"]*)"`).FindStringSubmatch(rest); len(mSt) > 1 {
@@ -694,7 +696,7 @@ func (v *VidaraTier) scanItemsManually(raw string) []models.MediaItem {
 					if mVa := regexp.MustCompile(`(?i)"va":\s*"([^"]*)"`).FindStringSubmatch(epRest); len(mVa) > 1 {
 						va = mVa[1]
 					}
-					if mSh := regexp.MustCompile(`(?i)"sh":\s*"([^"]*)"`).FindStringSubmatch(epRest); len(mSh) > 1 {
+					if mSh := regexp.MustCompile(`(?i)"(?:sh|sg)":\s*"([^"]*)"`).FindStringSubmatch(epRest); len(mSh) > 1 {
 						sh = mSh[1]
 					}
 					if mSt := regexp.MustCompile(`(?i)"st":\s*"([^"]*)"`).FindStringSubmatch(epRest); len(mSt) > 1 {
@@ -975,11 +977,11 @@ func (v *VidaraTier) tryResolveStream(ctx context.Context, vaID, shID, stID, hdh
 	workerClient := v.workerClient
 	v.mu.RUnlock()
 
-	// 1. StreamHG (sh)
+	// 1. StreamHG (sh) - Strictly on proxy via In-Worker Extraction
 	if shID != "" {
 		log.Printf("[tier1] resolving stream for sh=%s", shID)
 		if workerClient != nil && workerClient.HasWorkers() {
-			log.Printf("[tier1] delegating sh=%s to Cloudflare Worker for same-IP extraction...", shID)
+			log.Printf("[tier1] delegating sh=%s to Worker for same-IP extraction...", shID)
 			sess, err := workerClient.ExtractSession(resolveCtx, proxy.ExtractSessionRequest{
 				Provider: "streamhg",
 				ID:       shID,
@@ -1584,93 +1586,124 @@ func (v *VidaraTier) ExtractStreamHG(ctx context.Context, urlOrID string) (*mode
 		base = DefaultStreamHGBase
 	}
 
-	pageURL := fmt.Sprintf("%s/e/%s", base, fileCode)
-	if strings.Contains(urlOrID, "://") {
-		if u, err := url.Parse(urlOrID); err == nil {
-			host := strings.ToLower(u.Hostname())
-			if strings.Contains(host, "hglink") || strings.Contains(host, "hgcloud") || strings.Contains(host, "streamhg") || strings.Contains(host, "vibuxer") {
-				pageURL = fmt.Sprintf("%s/e/%s", base, fileCode)
-			} else {
-				pageURL = urlOrID
+	var bases []string
+	if base != "" {
+		bases = append(bases, base)
+	}
+	for _, fallback := range []string{"https://hanerix.com", "https://streamhg.com", "https://hglink.to", "https://hgcloud.to"} {
+		found := false
+		for _, b := range bases {
+			if strings.EqualFold(b, fallback) {
+				found = true
+				break
 			}
+		}
+		if !found {
+			bases = append(bases, fallback)
 		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", pageURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	for k, val := range defaultHeaders {
-		req.Header.Set(k, val)
-	}
-	req.Header.Set("Referer", "https://hglink.to/")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-
-	resp, err := v.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("streamhg returned status %d", resp.StatusCode)
-	}
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	html := string(bodyBytes)
-
-	unpacked := UnpackPackedJS(html)
-	if unpacked == "" {
-		// Fallback check for var src="..." (if any legacy proxy was queried)
-		if m := reVarSrc.FindStringSubmatch(html); len(m) > 1 {
-			rawSrc := strings.TrimSpace(m[1])
-			rawSrc = strings.ReplaceAll(rawSrc, `\/`, `/`)
-			if rawSrc != "" {
-				unpacked = fmt.Sprintf(`var links={"hls4":"%s"}; jwplayer`, rawSrc)
+	var lastErr error
+	for _, currBase := range bases {
+		pageURL := fmt.Sprintf("%s/e/%s", currBase, fileCode)
+		if strings.Contains(urlOrID, "://") {
+			if u, err := url.Parse(urlOrID); err == nil {
+				host := strings.ToLower(u.Hostname())
+				if strings.Contains(host, "hglink") || strings.Contains(host, "hgcloud") || strings.Contains(host, "streamhg") || strings.Contains(host, "vibuxer") || strings.Contains(host, "hanerix") {
+					pageURL = fmt.Sprintf("%s/e/%s", currBase, fileCode)
+				} else {
+					pageURL = urlOrID
+				}
 			}
 		}
+
+		req, err := http.NewRequestWithContext(ctx, "GET", pageURL, nil)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		for k, val := range defaultHeaders {
+			req.Header.Set(k, val)
+		}
+		req.Header.Set("Referer", "https://hglink.to/")
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+
+		resp, err := v.client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("streamhg (%s) returned status %d", currBase, resp.StatusCode)
+			continue
+		}
+
+		bodyBytes, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		html := string(bodyBytes)
+
+		unpacked := UnpackPackedJS(html)
+		if unpacked == "" {
+			// Fallback check for var src="..." (if any legacy proxy was queried)
+			if m := reVarSrc.FindStringSubmatch(html); len(m) > 1 {
+				rawSrc := strings.TrimSpace(m[1])
+				rawSrc = strings.ReplaceAll(rawSrc, `\/`, `/`)
+				if rawSrc != "" {
+					unpacked = fmt.Sprintf(`var links={"hls4":"%s"}; jwplayer`, rawSrc)
+				}
+			}
+		}
+
+		candidates := ExtractStreamHGCandidates(unpacked, pageURL)
+		if len(candidates) == 0 {
+			lastErr = fmt.Errorf("could not find media stream in StreamHG HTML (%s)", currBase)
+			continue
+		}
+
+		streamURL := candidates[0]
+
+		title := ""
+		if mTitle := reTitle.FindStringSubmatch(html); len(mTitle) > 1 {
+			title = strings.TrimSpace(mTitle[1])
+		}
+
+		var dynamicAudio []models.AudioTrack
+		if strings.Contains(streamURL, ".m3u8") {
+			dynamicAudio = v.ExtractAudioTracksFromM3U(ctx, streamURL)
+		}
+
+		streamHost := currBase
+		if u, err := url.Parse(pageURL); err == nil {
+			streamHost = u.Scheme + "://" + u.Host
+		}
+
+		return &models.ExtractorResponse{
+			Status:      "success",
+			Success:     true,
+			Source:      "StreamHG",
+			OriginalURL: "/e/" + fileCode,
+			URL:         streamURL,
+			Text:        title,
+			Title:       title,
+			StreamType:  "m3u8",
+			AudioTracks: dynamicAudio,
+			Headers: map[string]string{
+				"Referer": pageURL,
+				"Origin":  streamHost,
+			},
+		}, nil
 	}
 
-	candidates := ExtractStreamHGCandidates(unpacked, pageURL)
-	if len(candidates) == 0 {
-		return nil, fmt.Errorf("could not find media stream in StreamHG HTML")
+	if lastErr != nil {
+		return nil, lastErr
 	}
-
-	streamURL := candidates[0]
-
-	title := ""
-	if mTitle := reTitle.FindStringSubmatch(html); len(mTitle) > 1 {
-		title = strings.TrimSpace(mTitle[1])
-	}
-
-	var dynamicAudio []models.AudioTrack
-	if strings.Contains(streamURL, ".m3u8") {
-		dynamicAudio = v.ExtractAudioTracksFromM3U(ctx, streamURL)
-	}
-
-	streamHost := base
-	if u, err := url.Parse(pageURL); err == nil {
-		streamHost = u.Scheme + "://" + u.Host
-	}
-
-	return &models.ExtractorResponse{
-		Status:      "success",
-		Success:     true,
-		Source:      "StreamHG",
-		OriginalURL: "/e/" + fileCode,
-		URL:         streamURL,
-		Text:        title,
-		Title:       title,
-		StreamType:  "m3u8",
-		AudioTracks: dynamicAudio,
-		Headers: map[string]string{
-			"Referer": pageURL,
-			"Origin":  streamHost,
-		},
-	}, nil
+	return nil, fmt.Errorf("could not resolve StreamHG from any mirror")
 }
 
 // ExtractHubCloud extracts high-speed stream from HubCloud / HDHub.

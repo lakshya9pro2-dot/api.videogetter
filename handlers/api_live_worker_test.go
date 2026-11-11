@@ -10,12 +10,11 @@ import (
 	"time"
 
 	"vidara-api/models"
-	"vidara-api/proxy"
 	"vidara-api/resolver"
 )
 
 func TestAPI_LiveWorker_TurboOctoSuccotash(t *testing.T) {
-	liveWorkerURL := "https://turbo-octo-succotash.kineflex-netflex.workers.dev"
+	liveWorkerURL := "https://proxyservr.kineflex-netflex.workers.dev"
 
 	mockTier3 := &mockTier{
 		movieFn: func(ctx context.Context, id int) (*models.ResolutionResult, error) {
@@ -37,8 +36,7 @@ func TestAPI_LiveWorker_TurboOctoSuccotash(t *testing.T) {
 
 	r := resolver.NewCentralResolver(nil, nil, mockTier3)
 	h := NewAPIHandler(r, nil, nil, 10*time.Second)
-	wc := proxy.NewWorkerClient([]string{liveWorkerURL}, "", 10*time.Second)
-	h.SetWorkerClient(wc, false)
+	h.SetWebWorkerURL(liveWorkerURL)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/movie/", h.HandleMovie)
@@ -64,11 +62,8 @@ func TestAPI_LiveWorker_TurboOctoSuccotash(t *testing.T) {
 	}
 
 	// Verify URL was transformed to the live Cloudflare Worker URL
-	if !strings.HasPrefix(res.URL, liveWorkerURL+"/session/") {
+	if !strings.HasPrefix(res.URL, liveWorkerURL) {
 		t.Errorf("expected URL to point to live worker %s, got %s", liveWorkerURL, res.URL)
-	}
-	if !strings.HasSuffix(res.URL, "/master.m3u8") {
-		t.Errorf("expected URL to end with /master.m3u8, got %s", res.URL)
 	}
 
 	// Verify upstream Origin and Referer are NOT leaked to the client

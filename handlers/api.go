@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +31,7 @@ type APIHandler struct {
 	tier3               *tiers.Tier3
 	workerClient        *proxy.WorkerClient
 	proxyFallbackDirect bool
+	webWorkerURL        string
 	httpClient          *http.Client
 	cache               *ResolutionCache
 	sf                  *SingleflightGroup
@@ -37,15 +40,38 @@ type APIHandler struct {
 
 // NewAPIHandler creates a new APIHandler instance.
 func NewAPIHandler(res *resolver.CentralResolver, vidaraTier *tiers.VidaraTier, tier3 *tiers.Tier3, timeout time.Duration) *APIHandler {
-	return &APIHandler{
-		resolver:   res,
-		vidaraTier: vidaraTier,
-		tier3:      tier3,
-		httpClient: &http.Client{Timeout: timeout},
-		cache:      NewResolutionCache(),
-		sf:         NewSingleflightGroup(),
-		cacheTTL:   30 * time.Minute,
+	webWorkerURL := "https://proxyservr.kineflex-netflex.workers.dev"
+	if vidaraTier != nil && vidaraTier.GetHubCloudProxyURL() != "" {
+		webWorkerURL = vidaraTier.GetHubCloudProxyURL()
 	}
+	return &APIHandler{
+		resolver:     res,
+		vidaraTier:   vidaraTier,
+		tier3:        tier3,
+		webWorkerURL: webWorkerURL,
+		httpClient:   &http.Client{Timeout: timeout},
+		cache:        NewResolutionCache(),
+		sf:           NewSingleflightGroup(),
+		cacheTTL:     30 * time.Minute,
+	}
+}
+
+// SetWebWorkerURL sets the worker URL for non-Streamtape streams in ?web mode (default: https://proxyservr.kineflex-netflex.workers.dev).
+func (h *APIHandler) SetWebWorkerURL(urlStr string) {
+	if urlStr != "" {
+		h.webWorkerURL = strings.TrimRight(strings.TrimSpace(urlStr), "/")
+	}
+}
+
+// GetWebWorkerURL returns the active web worker URL for non-Streamtape sources.
+func (h *APIHandler) GetWebWorkerURL() string {
+	if h.webWorkerURL != "" {
+		return h.webWorkerURL
+	}
+	if h.vidaraTier != nil && h.vidaraTier.GetHubCloudProxyURL() != "" {
+		return h.vidaraTier.GetHubCloudProxyURL()
+	}
+	return "https://proxyservr.kineflex-netflex.workers.dev"
 }
 
 // ClearCache flushes the in-memory resolution cache.
@@ -55,7 +81,7 @@ func (h *APIHandler) ClearCache() {
 	}
 }
 
-// SetWorkerClient configures the Cloudflare Worker proxy client and fallback policy.
+// SetWorkerClient configures the Netlify Worker proxy client and fallback policy (used exclusively for Streamtape).
 func (h *APIHandler) SetWorkerClient(client *proxy.WorkerClient, fallbackDirect bool) {
 	h.workerClient = client
 	h.proxyFallbackDirect = fallbackDirect
@@ -84,100 +110,196 @@ func IsWebRequest(r *http.Request) bool {
 	return false
 }
 
-// proxyResolvedResult requests a playback session from the configured Cloudflare Workers.
-// In normal mode (!isWeb), ONLY StreamHG and Streamtape are proxied via Worker.
-// Vidara, HubCloud, Direct Play, Tier 2, Tier 3, and Tier 4 are NOT proxied (direct stream URLs returned).
-// In web mode (isWeb == true, e.g. ?web), ALL sources are proxied through Workers (or HubCloud proxy).
+// proxyViaWorkerHide proxies any stream URL via the proxyservr worker (/api/hide or /proxy?url=).
+func proxyViaWorkerHide(ctx context.Context, client *http.Client, proxyBase, rawURL string) (string, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return "", fmt.Errorf("empty raw URL")
+	}
+	if proxyBase == "" {
+		proxyBase = "https://proxyservr.kineflex-netflex.workers.dev"
+	}
+	proxyBase = strings.TrimRight(proxyBase, "/")
+	if strings.HasPrefix(rawURL, proxyBase) {
+		return rawURL, nil
+	}
+
+	hideEndpoint := fmt.Sprintf("%s/api/hide", proxyBase)
+	reqBody, err := json.Marshal(map[string]string{"url": rawURL})
+	if err != nil {
+		return fmt.Sprintf("%s/proxy?url=%s", proxyBase, url.QueryEscape(rawURL)), nil
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+
+	httpReq, err := http.NewRequestWithContext(reqCtx, http.MethodPost, hideEndpoint, bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Sprintf("%s/proxy?url=%s", proxyBase, url.QueryEscape(rawURL)), nil
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0")
+
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return fmt.Sprintf("%s/proxy?url=%s", proxyBase, url.QueryEscape(rawURL)), nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		var hideResp struct {
+			StreamURL string `json:"streamUrl"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&hideResp); err == nil && hideResp.StreamURL != "" {
+			streamPath := hideResp.StreamURL
+			if !strings.HasPrefix(streamPath, "/") {
+				streamPath = "/" + streamPath
+			}
+			return proxyBase + streamPath, nil
+		}
+	}
+
+	return fmt.Sprintf("%s/proxy?url=%s", proxyBase, url.QueryEscape(rawURL)), nil
+}
+
+// proxyResolvedResult rewrites a resolved media stream according to specific proxy rules:
+// - Direct MP4: Always plays WITHOUT proxy in BOTH normal and web mode.
+// - Streamtape (st) & StreamHG (sh/sg): Strictly proxied via worker (workerClient) in BOTH normal and web mode.
+// - Normal mode (!isWeb): ONLY Streamtape and StreamHG are proxied. All other sources (Vidara, HubCloud, Tiers 2-4) remain DIRECT.
+// - Web mode (isWeb == true, ?web): Streamtape & StreamHG use workerClient; all other sources (Vidara, HubCloud, Tiers 2-4) use https://proxyservr.kineflex-netflex.workers.dev.
 func (h *APIHandler) proxyResolvedResult(ctx context.Context, result *models.ResolutionResult, videoID string, mediaType string, isWeb bool) error {
 	if result == nil || !result.Success || strings.TrimSpace(result.URL) == "" {
 		return nil
 	}
 
-	isStreamHG := result.Source == "streamhg" || strings.EqualFold(result.Source, "sh")
-	isStreamTape := result.Source == "streamtape" || strings.EqualFold(result.Source, "st")
-	isHubCloud := result.Source == "hubcloud" || strings.Contains(strings.ToLower(result.Source), "hubcloud")
-
-	// In normal mode (!isWeb), ONLY StreamHG and Streamtape are proxied.
-	// Vidara, HubCloud, Direct Play, Tier 2, Tier 3, and Tier 4 remain direct.
-	if !isWeb {
-		if !isStreamHG && !isStreamTape {
-			return nil
-		}
+	// 1. Direct MP4: Always play WITHOUT proxy in BOTH normal and web mode!
+	isDirectMP4 := result.Source == "direct" || (result.Direct && result.StreamType == "mp4") || (result.Source != "streamtape" && strings.HasSuffix(strings.ToLower(strings.Split(result.URL, "?")[0]), ".mp4") && result.Direct)
+	if isDirectMP4 {
+		return nil
 	}
 
-	// Skip if URL is already a proxied Cloudflare Worker URL (e.g. from in-worker extraction of StreamHG or Streamtape)
-	if h.workerClient != nil {
-		for _, wURL := range h.workerClient.GetWorkerURLs() {
-			if strings.HasPrefix(result.URL, wURL) {
+	isStreamTape := result.Source == "streamtape" || strings.EqualFold(result.Source, "st")
+	isStreamHG := result.Source == "streamhg" || strings.EqualFold(result.Source, "sh") || strings.EqualFold(result.Source, "sg")
+
+	// 2. Streamtape (st) and StreamHG (sh/sg): Strictly use workerClient in BOTH normal and web mode
+	if isStreamTape || isStreamHG {
+		// Skip if URL is already a proxied worker URL
+		if h.workerClient != nil {
+			for _, wURL := range h.workerClient.GetWorkerURLs() {
+				if strings.HasPrefix(result.URL, wURL) {
+					return nil
+				}
+			}
+		}
+
+		if h.workerClient == nil || !h.workerClient.HasWorkers() {
+			return nil
+		}
+
+		provider := "streamtape"
+		if isStreamHG {
+			provider = "streamhg"
+		}
+
+		var sessResp *proxy.SessionResponse
+		var err error
+
+		// Try in-worker extraction if provider ID is available
+		var providerID string
+		if isStreamTape && result.Play != nil && result.Play.ST != "" {
+			providerID = result.Play.ST
+		} else if isStreamHG && result.Play != nil && result.Play.SH != "" {
+			providerID = result.Play.SH
+		}
+
+		if providerID != "" {
+			sessResp, err = h.workerClient.ExtractSession(ctx, proxy.ExtractSessionRequest{
+				Provider: provider,
+				ID:       providerID,
+				VideoID:  videoID,
+				Type:     mediaType,
+			})
+		}
+
+		// If in-worker extraction was not performed or failed, create session from URL
+		if sessResp == nil || sessResp.PlaybackURL == "" {
+			sessResp, err = h.workerClient.CreateSession(ctx, proxy.SessionRequest{
+				URL:     result.URL,
+				Headers: result.Headers,
+				VideoID: videoID,
+				Type:    mediaType,
+			})
+		}
+
+		if err != nil {
+			if h.proxyFallbackDirect {
+				log.Printf("[handlers] %s proxy worker failed for %s (%s), falling back to direct URL: %v", provider, videoID, result.URL, err)
 				return nil
 			}
+			return fmt.Errorf("failed to register %s playback proxy session: %w", provider, err)
 		}
-	}
 
-	// HubCloud is exclusively proxied via its dedicated streaming proxy (https://proxyservr.kineflex-netflex.workers.dev).
-	// Never route HubCloud through generic HLS workerClient. Only proxied if in web mode.
-	if isHubCloud || strings.HasPrefix(result.URL, "https://proxyservr.kineflex-netflex.workers.dev") {
-		if isHubCloud && h.vidaraTier != nil && !strings.HasPrefix(result.URL, h.vidaraTier.GetHubCloudProxyURL()) {
-			if proxiedURL, err := h.vidaraTier.ProxyHubCloudStream(ctx, result.URL); err == nil && proxiedURL != "" {
-				result.URL = proxiedURL
-				result.Direct = false
-			}
+		playbackURL := sessResp.PlaybackURL
+		if isStreamTape && strings.HasSuffix(playbackURL, "/master.m3u8") {
+			playbackURL = strings.TrimSuffix(playbackURL, "/master.m3u8") + "/video.mp4"
 		}
-		return nil
-	}
 
-	// Direct local network storage files (private IPs or explicit local "direct" source)
-	if result.Source == "direct" || strings.Contains(result.URL, "192.168.") || strings.Contains(result.URL, "10.") || strings.Contains(result.URL, "127.0.0.1") || strings.Contains(result.URL, "localhost") {
-		return nil
-	}
-
-	if h.workerClient == nil || !h.workerClient.HasWorkers() {
-		return nil
-	}
-
-	upstreamURL := result.URL
-	upstreamHeaders := result.Headers
-
-	sessResp, err := h.workerClient.CreateSession(ctx, proxy.SessionRequest{
-		URL:     upstreamURL,
-		Headers: upstreamHeaders,
-		VideoID: videoID,
-		Type:    mediaType,
-	})
-	if err != nil {
-		if h.proxyFallbackDirect {
-			log.Printf("[handlers] proxy workers failed for %s (%s), falling back to direct URL: %v", videoID, upstreamURL, err)
-			return nil
-		}
-		return fmt.Errorf("failed to register playback proxy session: %w", err)
-	}
-
-	playbackURL := sessResp.PlaybackURL
-	isMKV := strings.EqualFold(result.StreamType, "mkv") || strings.Contains(strings.ToLower(upstreamURL), ".mkv")
-	isMP4 := strings.EqualFold(result.StreamType, "mp4") || strings.Contains(strings.ToLower(upstreamURL), ".mp4")
-
-	if isMKV && strings.HasSuffix(playbackURL, "/master.m3u8") {
-		playbackURL = strings.TrimSuffix(playbackURL, "/master.m3u8") + "/stream.mkv"
-	} else if isMP4 && strings.HasSuffix(playbackURL, "/master.m3u8") {
-		playbackURL = strings.TrimSuffix(playbackURL, "/master.m3u8") + "/video.mp4"
-	}
-
-	// Update result with clean worker URL
-	result.URL = playbackURL
-	if isHubCloud || isMKV || isMP4 {
+		result.URL = playbackURL
 		result.Direct = false
+
+		if result.Headers != nil {
+			delete(result.Headers, "Origin")
+			delete(result.Headers, "Referer")
+			delete(result.Headers, "origin")
+			delete(result.Headers, "referer")
+		}
+		if result.Play != nil {
+			result.Play.URL = playbackURL
+		}
+		return nil
 	}
 
-	// Clear upstream Origin and Referer requirements so client does not need them
-	if result.Headers != nil {
-		delete(result.Headers, "Origin")
-		delete(result.Headers, "Referer")
-		delete(result.Headers, "origin")
-		delete(result.Headers, "referer")
+	// 3. In normal mode (!isWeb), ONLY Streamtape and StreamHG are proxied.
+	// All other sources (Vidara, HubCloud, Tiers 2-4) remain DIRECT.
+	if !isWeb {
+		return nil
 	}
 
-	if result.Play != nil {
-		result.Play.URL = playbackURL
+	// 4. In ?web mode for ALL OTHER sources (Vidara, HubCloud, Tiers 2-4):
+	// Strictly use https://proxyservr.kineflex-netflex.workers.dev
+	webWorkerBase := h.GetWebWorkerURL()
+	if strings.HasPrefix(result.URL, webWorkerBase) {
+		return nil
+	}
+
+	var proxiedURL string
+	var pErr error
+
+	if h.vidaraTier != nil {
+		proxiedURL, pErr = h.vidaraTier.ProxyHubCloudStream(ctx, result.URL)
+	} else {
+		proxiedURL, pErr = proxyViaWorkerHide(ctx, h.httpClient, webWorkerBase, result.URL)
+	}
+
+	if pErr == nil && proxiedURL != "" {
+		result.URL = proxiedURL
+		result.Direct = false
+		if result.Headers != nil {
+			delete(result.Headers, "Origin")
+			delete(result.Headers, "Referer")
+			delete(result.Headers, "origin")
+			delete(result.Headers, "referer")
+		}
+		if result.Play != nil {
+			result.Play.URL = proxiedURL
+		}
+		return nil
+	} else if pErr != nil {
+		log.Printf("[handlers] proxyservr proxy failed for %s (%s): %v, keeping direct URL", videoID, result.URL, pErr)
 	}
 
 	return nil

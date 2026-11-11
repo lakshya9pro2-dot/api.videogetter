@@ -28,7 +28,55 @@ var (
 	reM3U8Any        = regexp.MustCompile(`(?i)["'](https?://[^"']+\.m3u8[^"']*)["']`)
 	reChainMethod    = regexp.MustCompile(`\.(substring|slice)\(\s*(\d+)(?:\s*,\s*(\d+))?\s*\)`)
 	rePartString     = regexp.MustCompile(`^\(?\s*['"]([\s\S]*?)['"]\s*\)?(.*)$`)
+	rePackedJS       = regexp.MustCompile(`(?s)eval\(function\(p,a,c,k,e,d\)\{.*?\}\('([\s\S]*?)',(\d+),(\d+),'([\s\S]*?)'\.split\('\|'\)`)
+	reLinksMatch     = regexp.MustCompile(`var\s+links\s*=\s*\{([\s\S]*?)\};\s*jwplayer`)
+	reLinkPair       = regexp.MustCompile(`"([^"]+)"\s*:\s*"([^"]*)"`)
 )
+
+func BaseN(num, base int) string {
+	const chars = "0123456789abcdefghijklmnopqrstuvwxyz"
+	if num == 0 {
+		return "0"
+	}
+	val := ""
+	for num > 0 {
+		rem := num % base
+		val = string(chars[rem]) + val
+		num = num / base
+	}
+	return val
+}
+
+func UnescapeJS(s string) string {
+	s = strings.ReplaceAll(s, `\'`, `'`)
+	s = strings.ReplaceAll(s, `\"`, `"`)
+	s = strings.ReplaceAll(s, `\\`, `\`)
+	return s
+}
+
+func UnpackPackedJS(html string) string {
+	m := rePackedJS.FindStringSubmatch(html)
+	if len(m) < 5 {
+		return ""
+	}
+
+	payload := UnescapeJS(m[1])
+	base, err1 := strconv.Atoi(m[2])
+	count, err2 := strconv.Atoi(m[3])
+	if err1 != nil || err2 != nil || base <= 0 {
+		return ""
+	}
+	words := strings.Split(m[4], "|")
+
+	for index := count - 1; index >= 0; index-- {
+		if index < len(words) && words[index] != "" {
+			tok := BaseN(index, base)
+			re := regexp.MustCompile(`\b` + regexp.QuoteMeta(tok) + `\b`)
+			payload = re.ReplaceAllString(payload, words[index])
+		}
+	}
+	return payload
+}
 
 // ExtractResult holds stream extraction details.
 type ExtractResult struct {
@@ -88,7 +136,45 @@ func ExtractStreamHG(ctx context.Context, fileCodeOrURL string) (*ExtractResult,
 	}
 	html := string(body)
 
-	// 1. Direct var src = "..." check
+	unpacked := UnpackPackedJS(html)
+	if unpacked == "" {
+		if m := reVarSrc.FindStringSubmatch(html); len(m) > 1 {
+			rawSrc := strings.TrimSpace(m[1])
+			rawSrc = strings.ReplaceAll(rawSrc, `\/`, `/`)
+			if rawSrc != "" {
+				unpacked = fmt.Sprintf(`var links={"hls4":"%s"}; jwplayer`, rawSrc)
+			}
+		}
+	}
+
+	// 1. Links match from unpacked JS
+	if m := reLinksMatch.FindStringSubmatch(unpacked); len(m) > 1 {
+		links := make(map[string]string)
+		for _, pair := range reLinkPair.FindAllStringSubmatch(m[1], -1) {
+			if len(pair) > 2 && pair[2] != "" {
+				links[pair[1]] = strings.ReplaceAll(pair[2], `\/`, `/`)
+			}
+		}
+		for _, key := range []string{"hls4", "hls3", "hls2"} {
+			if val, ok := links[key]; ok && strings.TrimSpace(val) != "" {
+				streamVal := strings.TrimSpace(val)
+				if strings.HasPrefix(streamVal, "/") {
+					streamVal = embedOrigin + streamVal
+				}
+				return &ExtractResult{
+					StreamURL:  streamVal,
+					DirectURL:  streamVal,
+					StreamType: "hls",
+					Headers: map[string]string{
+						"Referer": embedURL,
+						"Origin":  embedOrigin,
+					},
+				}, nil
+			}
+		}
+	}
+
+	// 2. Direct var src = "..." check
 	if m := reVarSrc.FindStringSubmatch(html); len(m) > 1 && m[1] != "" {
 		sURL := m[1]
 		if strings.HasPrefix(sURL, "//") {

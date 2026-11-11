@@ -356,12 +356,12 @@ func TestAPI_MovieWithWorkerProxy_ReplacesURL_AndClearsHeaders(t *testing.T) {
 				TmdbID:  id,
 				Type:    "movie",
 				Tier:    3,
-				Source:  "showbox",
+				Source:  "streamtape",
 				Title:   "Fight Club",
-				URL:     "https://hls.shegu.net/550.m3u8",
+				URL:     "https://streamtape.com/get_video?id=550",
 				Headers: map[string]string{
-					"Origin":  "https://www.febbox.com",
-					"Referer": "https://www.febbox.com/",
+					"Origin":  "https://streamtape.com",
+					"Referer": "https://streamtape.com/",
 				},
 			}, nil
 		},
@@ -391,7 +391,7 @@ func TestAPI_MovieWithWorkerProxy_ReplacesURL_AndClearsHeaders(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&res)
 
 	// Verify Worker URL replaced upstream URL
-	if !strings.Contains(res.URL, "/session/sess-cf-550/master.m3u8") {
+	if !strings.Contains(res.URL, "/session/sess-cf-550/") {
 		t.Errorf("expected worker playback URL, got: %s", res.URL)
 	}
 
@@ -401,7 +401,7 @@ func TestAPI_MovieWithWorkerProxy_ReplacesURL_AndClearsHeaders(t *testing.T) {
 	}
 
 	// Verify tier and source metadata remain intact
-	if res.Tier != 3 || res.Source != "showbox" || res.TmdbID != 550 {
+	if res.Tier != 3 || res.Source != "streamtape" || res.TmdbID != 550 {
 		t.Errorf("expected source metadata intact, got: %+v", res)
 	}
 }
@@ -431,7 +431,7 @@ func TestAPI_MovieWithWorkerFailover(t *testing.T) {
 				TmdbID:  id,
 				Type:    "movie",
 				Tier:    3,
-				Source:  "vidrift-atlas",
+				Source:  "streamtape",
 				URL:     "https://upstream.cdn/550/master.m3u8",
 			}, nil
 		},
@@ -460,7 +460,7 @@ func TestAPI_MovieWithWorkerFailover(t *testing.T) {
 	var res models.ResolutionResult
 	_ = json.NewDecoder(resp.Body).Decode(&res)
 
-	if !strings.Contains(res.URL, "/session/sess-w2-success/master.m3u8") {
+	if !strings.Contains(res.URL, "/session/sess-w2-success/") {
 		t.Errorf("expected Worker 2 URL, got: %s", res.URL)
 	}
 }
@@ -478,6 +478,7 @@ func TestAPI_MovieWithAllWorkersFailing_Returns502(t *testing.T) {
 				TmdbID:  id,
 				Type:    "movie",
 				Tier:    3,
+				Source:  "streamtape",
 				URL:     "https://upstream.cdn/550.m3u8",
 			}, nil
 		},
@@ -528,6 +529,7 @@ func TestAPI_M3UWithWorkerProxy(t *testing.T) {
 				TmdbID:  id,
 				Type:    "movie",
 				Tier:    3,
+				Source:  "streamtape",
 				Title:   "Fight Club",
 				URL:     "https://upstream.cdn/550.m3u8",
 				Headers: map[string]string{
@@ -562,7 +564,7 @@ func TestAPI_M3UWithWorkerProxy(t *testing.T) {
 	m3uText := string(body)
 
 	// M3U should contain Worker playback URL
-	if !strings.Contains(m3uText, "/session/sess-m3u/master.m3u8") {
+	if !strings.Contains(m3uText, "/session/sess-m3u/") {
 		t.Errorf("expected M3U to contain worker URL, got: %s", m3uText)
 	}
 

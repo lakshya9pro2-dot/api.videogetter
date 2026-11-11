@@ -37,6 +37,7 @@ func (p *Playback) UnmarshalJSON(b []byte) error {
 		Alias
 		DirectURL string `json:"url"`
 		PlayVal   string `json:"play"`
+		SG        string `json:"sg"`
 	}
 	if err := json.Unmarshal(b, &aux); err != nil {
 		return err
@@ -45,6 +46,9 @@ func (p *Playback) UnmarshalJSON(b []byte) error {
 	p.VA = aux.VA
 	p.ST = aux.ST
 	p.SH = aux.SH
+	if p.SH == "" && aux.SG != "" {
+		p.SH = aux.SG
+	}
 	p.HDHub = aux.HDHub
 	p.HubCloud = aux.HubCloud
 	p.HubHD = aux.HubHD
